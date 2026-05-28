@@ -2368,3 +2368,210 @@
   .ag-bar-val   { width:90px;  font-size:10px; }
 }
 
+
+/* =====================================================
+   MIS VENTAS
+   ===================================================== */
+
+/* Stats grid en header */
+.mv-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  background: rgba(255,255,255,.1);
+  border-radius: 14px;
+  padding: 12px 10px;
+  margin-bottom: 12px;
+}
+.mv-stat-box { text-align: center; }
+.mv-stat-box span { display: block; font-size: 16px; font-weight: 800; color: white; }
+.mv-stat-box small { font-size: 10px; opacity: .75; color: white; }
+
+/* Tarjeta de venta */
+.mv-card {
+  background: #fff;
+  border: 1.5px solid #e8e8e8;
+  border-radius: 16px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all .2s;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.mv-card:hover {
+  border-color: #007a7a;
+  box-shadow: 0 6px 20px rgba(0,128,128,.12);
+  transform: translateY(-1px);
+}
+
+/* Strip superior con ID destacado */
+.mv-folio-strip {
+  background: linear-gradient(135deg, #0d2b2b, #005f5f);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.mv-folio-label {
+  display: block;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: rgba(255,255,255,.6);
+  margin-bottom: 2px;
+}
+.mv-folio-id   { flex-shrink: 0; }
+.mv-folio-code { flex: 1; }
+.mv-folio-num {
+  font-family: monospace;
+  font-size: 22px;
+  font-weight: 900;
+  color: #5DCAA5;
+  letter-spacing: .02em;
+}
+.mv-folio-val {
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,.85);
+}
+.mv-estado-badge {
+  background: rgba(46,125,50,.3);
+  border: 1px solid rgba(46,125,50,.6);
+  color: #a5d6a7;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+/* Cuerpo de la tarjeta */
+.mv-card-body {
+  padding: 14px 16px 12px;
+  flex: 1;
+}
+.mv-info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.mv-monto-block { display: flex; flex-direction: column; gap: 2px; }
+.mv-monto-label { font-size: 11px; color: #888; }
+.mv-monto-val {
+  font-size: 22px;
+  font-weight: 800;
+  color: #007a7a;
+  line-height: 1;
+}
+.mv-monto-val small { font-size: 12px; font-weight: 400; color: #aaa; }
+.mv-metodo-block {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+.mv-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 11px;
+  color: #888;
+}
+.mv-arrow {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 20px;
+  color: #ccc;
+}
+.mv-card:hover .mv-arrow { color: #007a7a; }
+
+/* Detalle de venta */
+.vd-hero {
+  background: linear-gradient(135deg, #0d2b2b, #005f5f);
+  padding: 24px 20px 20px;
+  text-align: center;
+  color: white;
+}
+.vd-hero-icon { font-size: 36px; margin-bottom: 6px; }
+.vd-hero-id {
+  font-family: monospace;
+  font-size: 32px;
+  font-weight: 900;
+  color: #5DCAA5;
+  letter-spacing: .02em;
+  margin-bottom: 2px;
+}
+.vd-hero-folio { font-size: 13px; opacity: .7; font-family: monospace; margin-bottom: 10px; }
+.vd-hero-estado {
+  display: inline-block;
+  background: rgba(46,125,50,.3);
+  border: 1px solid rgba(46,125,50,.6);
+  color: #a5d6a7;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 14px;
+  border-radius: 20px;
+}
+
+.vd-monto-grande {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: #f0faf8;
+  border-bottom: 1px solid #e0e0e0;
+}
+.vd-monto-lbl { font-size: 13px; color: #666; }
+.vd-monto-num { font-size: 24px; font-weight: 800; color: #007a7a; }
+
+.vd-section {
+  padding: 14px 20px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.vd-section:last-of-type { border-bottom: none; }
+.vd-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  margin-bottom: 10px;
+}
+.vd-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 0;
+  font-size: 13px;
+  border-bottom: 1px solid #f5f5f5;
+  gap: 12px;
+}
+.vd-row:last-child { border-bottom: none; }
+.vd-row span:first-child { color: #888; flex-shrink: 0; }
+.vd-row strong { color: #1a1a1a; text-align: right; }
+.vd-badge-ok {
+  background: #e8f5e9;
+  color: #2e7d32;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+
+@media (max-width: 480px) {
+  .mv-stats-grid { grid-template-columns: repeat(2,1fr); }
+  .mv-folio-num  { font-size: 18px; }
+  .vd-hero-id    { font-size: 26px; }
+  .mv-card-body  { padding-right: 28px; }
+}
+

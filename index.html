@@ -1039,6 +1039,56 @@
   </div>
 </div>
 
+
+<!-- ===================== MIS VENTAS ===================== -->
+<div id="misventas-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:400;backdrop-filter:blur(5px);overflow-y:auto;padding:20px 16px;">
+  <div class="mc-modal" style="max-width:640px;">
+
+    <div class="mc-modal-header" style="background:linear-gradient(135deg,#0a1f1f 0%,#003f3f 50%,#005f5f 100%);">
+      <button class="mc-close-btn" onclick="closeMisVentas()">×</button>
+      <h3>📦 Mis Ventas</h3>
+      <p>Registro de servicios vendidos</p>
+
+      <div class="mv-stats-grid">
+        <div class="mv-stat-box">
+          <span id="mv-stat-total">0</span>
+          <small>Total ventas</small>
+        </div>
+        <div class="mv-stat-box">
+          <span id="mv-stat-monto">$0</span>
+          <small>Ingresos</small>
+        </div>
+        <div class="mv-stat-box">
+          <span id="mv-stat-tarjeta">0</span>
+          <small>💳 Tarjeta</small>
+        </div>
+        <div class="mv-stat-box">
+          <span id="mv-stat-aca">0</span>
+          <small>🪙 AcaPoints</small>
+        </div>
+      </div>
+
+      <div class="mc-search-wrap" style="margin-top:0;">
+        <svg width="15" height="15" fill="none" stroke="#aaa" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" placeholder="Buscar por folio, ID, método…" oninput="renderMisVentas(this.value)" class="mc-search"/>
+      </div>
+    </div>
+
+    <div id="mv-list" class="mc-list"></div>
+  </div>
+</div>
+
+<!-- ===================== DETALLE VENTA ===================== -->
+<div id="venta-detalle-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:401;backdrop-filter:blur(5px);overflow-y:auto;padding:20px 16px;">
+  <div class="mc-modal" style="max-width:500px;background:#fff;">
+    <div class="cd-modal-header" style="background:linear-gradient(135deg,#0a1f1f,#005f5f);">
+      <button class="mc-close-btn" onclick="closeVentaDetalle()" style="font-size:13px;font-weight:600;width:auto;height:auto;background:transparent;padding:0;border-radius:0;">‹ Volver</button>
+      <h3 style="color:white;margin:0;">Detalle de venta</h3>
+    </div>
+    <div id="venta-detalle-body" style="padding:0;"></div>
+  </div>
+</div>
+
 <!-- ===================== MIS COMPRAS ===================== -->
 <div id="miscompras-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:400;backdrop-filter:blur(4px);overflow-y:auto;padding:20px 16px;">
   <div class="mc-modal">

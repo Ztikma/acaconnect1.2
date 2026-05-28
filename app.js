@@ -723,6 +723,10 @@ function setUser(user) {
           <button class="dropdown-item" onclick="closeDropdown();openMisCompras()">
             <span class="item-icon">🛍️</span> Mis compras
           </button>
+          <button class="dropdown-item" onclick="closeDropdown();openMisVentas()" style="justify-content:space-between;">
+            <span><span class="item-icon">📦</span> Mis ventas</span>
+            <span id="nav-ventas-badge" style="display:none;background:rgba(0,128,128,.12);color:var(--teal);font-size:12px;font-weight:700;padding:2px 9px;border-radius:20px;"></span>
+          </button>
           <button class="dropdown-item" onclick="closeDropdown();showPage('acapoints')" style="justify-content:space-between;">
             <span><span class="item-icon">🪙</span> AcaPoints</span>
             <span id="nav-acapoints-badge" style="background:rgba(0,128,128,.12);color:var(--teal);font-size:12px;font-weight:700;padding:2px 9px;border-radius:20px;">0</span>
@@ -2037,7 +2041,10 @@ async function eliminarUsuario(userId, nombre) {
 
   function init() {
     // 1. Restaurar usuario en UI
-    if (currentUser) setUser(currentUser);
+    if (currentUser) {
+      setUser(currentUser);
+      loadWallet(); // <-- cargar saldo desde Supabase al restaurar sesión
+    }
     initMobileNav();
     initTheme();
 
@@ -2241,49 +2248,165 @@ function walletTarjetaSet(v)   { userSaldoTarjeta = Math.max(0, v); _cacheTarjet
 async function upsertWallet(nuevoAca, nuevoTarjeta) {
   const aca = (nuevoAca     !== undefined) ? nuevoAca     : userAcaPoints;
   const tar = (nuevoTarjeta !== undefined) ? nuevoTarjeta : userSaldoTarjeta;
+  // Actualizar UI y cache local inmediatamente
   walletSet(aca);
   walletTarjetaSet(tar);
+
+  const body = JSON.stringify({
+    usuario_id:    currentUser.id,
+    acapoints:     aca,
+    saldo_tarjeta: tar,
+    actualizado:   new Date().toISOString()
+  });
+  const headers = {
+    'apikey':        SUPA_KEY,
+    'Authorization': 'Bearer ' + SUPA_KEY,
+    'Content-Type':  'application/json'
+  };
+
   try {
-    await fetch(SUPA_URL + '/rest/v1/wallets', {
+    // 1. Intentar upsert (POST con merge-duplicates)
+    const res = await fetch(SUPA_URL + '/rest/v1/wallets', {
       method: 'POST',
-      headers: {
-        'apikey': SUPA_KEY,
-        'Authorization': 'Bearer ' + SUPA_KEY,
-        'Content-Type': 'application/json',
-        'Prefer': 'resolution=merge-duplicates,return=minimal'
-      },
-      body: JSON.stringify({
-        usuario_id:     currentUser.id,
-        acapoints:      aca,
-        saldo_tarjeta:  tar,
-        actualizado:    new Date().toISOString()
-      })
+      headers: { ...headers, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body
     });
-  } catch(e) { console.warn('wallet sync error:', e); }
+
+    if (res.ok) return; // éxito
+
+    const err = await res.json().catch(() => ({}));
+    console.warn('upsert falló:', res.status, err.message);
+
+    // 2. Fallback: intentar PATCH si ya existe el registro
+    const patch = await fetch(
+      SUPA_URL + '/rest/v1/wallets?usuario_id=eq.' + currentUser.id,
+      {
+        method: 'PATCH',
+        headers: { ...headers, 'Prefer': 'return=minimal' },
+        body: JSON.stringify({ acapoints: aca, saldo_tarjeta: tar, actualizado: new Date().toISOString() })
+      }
+    );
+    if (!patch.ok) {
+      const pErr = await patch.json().catch(() => ({}));
+      console.warn('patch también falló:', patch.status, pErr.message);
+    }
+  } catch(e) {
+    console.warn('wallet sin conexión:', e.message);
+  }
 }
 
 // ── Cargar saldo desde Supabase al iniciar sesión ───────────────────
+// ── Acreditar saldo al vendedor cuando alguien compra su servicio ──────
+async function acreditarProveedor(proveedorId, monto, metodo, folio, tituloServicio) {
+  if (!proveedorId) return;
+  try {
+    // 1. Leer wallet actual del proveedor
+    const res = await fetch(
+      SUPA_URL + '/rest/v1/wallets?usuario_id=eq.' + proveedorId + '&select=acapoints,saldo_tarjeta',
+      { headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY } }
+    );
+    let acaActual = 0, tarActual = 0;
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.length > 0) {
+        acaActual = parseFloat(data[0].acapoints)     || 0;
+        tarActual = parseFloat(data[0].saldo_tarjeta) || 0;
+      }
+    }
+
+    // 2. Calcular nuevo saldo según método de pago
+    const nuevoAca = metodo === 'acapoints' ? acaActual + monto : acaActual;
+    const nuevoTar = metodo === 'tarjeta'   ? tarActual + monto : tarActual;
+
+    // 3. Upsert wallet del proveedor
+    const body = JSON.stringify({
+      usuario_id:    proveedorId,
+      acapoints:     nuevoAca,
+      saldo_tarjeta: nuevoTar,
+      actualizado:   new Date().toISOString()
+    });
+    const headers = {
+      'apikey':        SUPA_KEY,
+      'Authorization': 'Bearer ' + SUPA_KEY,
+      'Content-Type':  'application/json'
+    };
+
+    const upsertRes = await fetch(SUPA_URL + '/rest/v1/wallets', {
+      method: 'POST',
+      headers: { ...headers, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body
+    });
+
+    if (!upsertRes.ok) {
+      // Fallback: PATCH
+      await fetch(SUPA_URL + '/rest/v1/wallets?usuario_id=eq.' + proveedorId, {
+        method: 'PATCH',
+        headers: { ...headers, 'Prefer': 'return=minimal' },
+        body: JSON.stringify({ acapoints: nuevoAca, saldo_tarjeta: nuevoTar, actualizado: new Date().toISOString() })
+      });
+    }
+
+    // 4. Registrar transacción para el proveedor
+    await fetch(SUPA_URL + '/rest/v1/transacciones_acapoints', {
+      method: 'POST',
+      headers: { ...headers, 'Prefer': 'return=minimal' },
+      body: JSON.stringify({
+        usuario_id:  proveedorId,
+        tipo:        'ingreso',
+        puntos:      metodo === 'acapoints' ? monto : 0,
+        monto_mxn:   metodo === 'tarjeta'   ? monto : 0,
+        descripcion: 'Venta: ' + tituloServicio + ' · Folio ' + folio
+      })
+    });
+
+  } catch(e) { console.warn('acreditarProveedor error:', e.message); }
+}
+
+
 async function loadWallet() {
   if (!currentUser) return;
   // Mostrar cache local mientras carga (UX instantánea)
   userAcaPoints    = _cacheAcaGet();
   userSaldoTarjeta = _cacheTarjetaGet();
   updateAcaPointsUI();
+
+  // Usar fetch directo (misma clave que el upsert) para evitar problemas de RLS con supaFetch
   try {
-    const data = await supaFetch(
-      '/rest/v1/wallets?usuario_id=eq.' + currentUser.id + '&select=acapoints,saldo_tarjeta'
+    const res = await fetch(
+      SUPA_URL + '/rest/v1/wallets?usuario_id=eq.' + currentUser.id + '&select=acapoints,saldo_tarjeta',
+      {
+        headers: {
+          'apikey':        SUPA_KEY,
+          'Authorization': 'Bearer ' + SUPA_KEY,
+          'Content-Type':  'application/json'
+        }
+      }
     );
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      console.warn('loadWallet error:', res.status, err.message || err);
+      // Intentar crear/actualizar el registro si no existe o hay error de permisos
+      await upsertWallet(userAcaPoints, userSaldoTarjeta);
+      return;
+    }
+
+    const data = await res.json();
+
     if (data && data.length > 0) {
-      // Supabase siempre gana — es la fuente de verdad cross-device
-      walletSet(parseFloat(data[0].acapoints) || 0);
-      walletTarjetaSet(parseFloat(data[0].saldo_tarjeta) || 0);
+      const aca = parseFloat(data[0].acapoints)     || 0;
+      const tar = parseFloat(data[0].saldo_tarjeta) || 0;
+      walletSet(aca);
+      walletTarjetaSet(tar);
+      // Sincronizar cache local
+      _cacheAcaSet(aca);
+      _cacheTarjetaSet(tar);
     } else {
-      // Primera vez: crear registro con saldos del cache local
+      // No existe el registro — crearlo con el saldo del cache local
       await upsertWallet(userAcaPoints, userSaldoTarjeta);
     }
   } catch(e) {
-    // Sin internet: usar cache local (saldo puede estar desactualizado)
-    console.warn('loadWallet offline, usando cache');
+    console.warn('loadWallet sin conexión, usando cache local:', e.message);
   }
 }
 
@@ -2512,7 +2635,22 @@ async function confirmPago() {
     if (selectedPayMethod === 'tarjeta') {
       await upsertWallet(userAcaPoints, userSaldoTarjeta + precio);
     }
-    supaFetch('/rest/v1/pagos', { method: 'POST', body: JSON.stringify({...pagoPayload, folio}) }).catch(()=>{});
+    // Guardar pago con folio en Supabase (await para garantizar que se guarde)
+    try {
+      await supaFetch('/rest/v1/pagos', {
+        method: 'POST',
+        body: JSON.stringify({ ...pagoPayload, folio })
+      });
+    } catch(e) {
+      // Si falla (ej. columna folio no existe aún), reintentar sin folio
+      supaFetch('/rest/v1/pagos', {
+        method: 'POST',
+        body: JSON.stringify(pagoPayload)
+      }).catch(() => {});
+    }
+
+    // Acreditar saldo al proveedor del servicio
+    acreditarProveedor(s.usuario_id, precio, selectedPayMethod, folio, s.titulo);
 
     // Si pagó con AcaPoints → descontar de la wallet
     if (selectedPayMethod === 'acapoints') {
@@ -2538,15 +2676,20 @@ async function confirmPago() {
     await crearNotifPago(notifTitulos[selectedPayMethod], notifMensajes[selectedPayMethod], notifTipo);
 
     // Mostrar éxito
-    const metLabel = { efectivo:'💵 Pago en efectivo registrado', tarjeta:'💳 Pago con tarjeta simulado', acapoints:'🪙 AcaPoints descontados' };
+    const metMsgs = {
+      efectivo:   '💵 Pago en efectivo registrado.<br>Coordina el pago directamente con el proveedor.',
+      tarjeta:    '💳 Pago con tarjeta simulado.<br>Transacción aprobada.',
+      acapoints:  '🪙 AcaPoints descontados.<br>Saldo restante: ' + Math.floor(userAcaPoints) + ' AcaPoints'
+    };
     document.getElementById('pago-success-msg').innerHTML =
       `<strong>${s.titulo}</strong> ha sido contratado exitosamente.<br><br>` +
-      metLabel[selectedPayMethod] + '.<br>' +
-      (selectedPayMethod === 'efectivo' ? 'Coordina el pago con el proveedor.' :
-       selectedPayMethod === 'acapoints' ? 'Saldo restante: ' + userAcaPoints.toFixed(0) + ' AcaPoints 🪙' :
-       'Transacción aprobada.') +
-      `<br><br><span style="font-size:13px;background:#f0f0f0;padding:6px 14px;border-radius:8px;font-family:monospace;font-weight:700;color:#007a7a;">Folio: ${folio}</span>` +
-      `<br><small style="color:#888;font-size:12px;margin-top:8px;display:block;">Guarda este folio para consultar tu compra en "Mis compras"</small>`;
+      (metMsgs[selectedPayMethod] || 'Pago registrado.') +
+      `<br><br>
+       <div style="background:#f0faf8;border:1.5px solid #b2dfdb;border-radius:10px;padding:12px 16px;text-align:left;">
+         <div style="font-size:11px;color:#666;margin-bottom:4px;">Folio de compra</div>
+         <div style="font-family:monospace;font-size:16px;font-weight:800;color:#007a7a;">${folio}</div>
+         <div style="font-size:11px;color:#888;margin-top:6px;">Guárdalo para consultar tu compra en "Mis compras"</div>
+       </div>`;
     const successOvl = document.getElementById('pago-success-overlay');
     successOvl.style.display = 'flex';
     successOvl.style.alignItems = 'center';
@@ -2876,19 +3019,23 @@ function retirosGetAll() {
 
 // ── Calcular resumen de billetera ───────────────────────
 function billeteraResumen() {
-  const movs = billeteraGetAll();
+  const movs = billeteraGetAllConIngresos();
   let gastoTarjeta   = 0;
   let gastoAcapoints = 0;
   let recargado      = 0;
   let retiradoAca    = 0;
   let retiradoTarjeta= 0;
 
+  let ingresosTarjeta = 0, ingresosAca = 0;
   movs.forEach(m => {
     if (m.tipo === 'gasto_tarjeta')     gastoTarjeta    += Number(m.monto) || 0;
     if (m.tipo === 'gasto_acapoints')   gastoAcapoints  += Number(m.monto) || 0;
     if (m.tipo === 'recarga_acapoints') recargado       += Number(m.monto) || 0;
     if (m.tipo === 'retiro_aca')        retiradoAca     += Number(m.puntos) || 0;
     if (m.tipo === 'retiro_tarjeta')    retiradoTarjeta += Number(m.monto)  || 0;
+    if (m.tipo === 'ingreso_tarjeta')   ingresosTarjeta += Number(m.monto)  || 0;
+    if (m.tipo === 'ingreso_acapoints') ingresosAca     += Number(m.monto)  || 0;
+    if (m.tipo === 'ingreso')           { ingresosTarjeta += Number(m.monto_mxn||0); ingresosAca += Number(m.puntos||0); }
   });
 
   const retiros = retirosGetAll();
@@ -2907,20 +3054,65 @@ function billeteraResumen() {
   return {
     gastoTarjeta, gastoAcapoints, recargado,
     retiradoAca, retiradoTarjeta, pendienteRetiro,
+    ingresosTarjeta, ingresosAca,
     saldoAca, saldoTarjeta,
     retirableAcaMxn, retirableTarjetaMxn,
     totalRetirableMxn: retirableAcaMxn + retirableTarjetaMxn,
-    totalGastado: gastoTarjeta + gastoAcapoints
+    totalGastado: gastoTarjeta + gastoAcapoints,
+    totalIngresos: ingresosTarjeta + ingresosAca
   };
 }
 
 // ── Abrir billetera ─────────────────────────────────────
+// ── Cargar ingresos de ventas (proveedor) desde Supabase ──────────────
+let _ingresosVentasCache = [];
+
+async function cargarIngresosVentas() {
+  if (!currentUser) return;
+  try {
+    const res = await fetch(
+      SUPA_URL + '/rest/v1/transacciones_acapoints?usuario_id=eq.' + currentUser.id +
+      '&tipo=eq.ingreso&order=creado_en.desc&limit=50',
+      { headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY } }
+    );
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data || !data.length) return;
+
+    // Convertir a formato de billetera y mezclar con movimientos locales
+    _ingresosVentasCache = data.map(tx => ({
+      id:          'ing-' + tx.id,
+      tipo:        tx.monto_mxn > 0 ? 'ingreso_tarjeta' : 'ingreso_acapoints',
+      monto:       tx.monto_mxn > 0 ? tx.monto_mxn : tx.puntos,
+      puntos:      tx.puntos || 0,
+      descripcion: tx.descripcion || 'Venta de servicio',
+      fecha:       tx.creado_en
+    }));
+  } catch(e) { console.warn('cargarIngresosVentas:', e.message); }
+}
+
+function billeteraGetAllConIngresos() {
+  const local = billeteraGetAll();
+  // Merge: ingresos de Supabase + movimientos locales, ordenados por fecha
+  const merged = [...local, ..._ingresosVentasCache];
+  merged.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+  // Deduplicar por id
+  const seen = new Set();
+  return merged.filter(m => {
+    const key = m.id || (m.tipo + m.descripcion + m.fecha);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+
 function openBilletera(tab) {
   if (!currentUser) { openModal('login'); return; }
-  // Set user info in header
   const userEl = document.getElementById('bl-header-user');
   if (userEl) userEl.textContent = currentUser.nombre + ' · ' + currentUser.email;
-  renderBilletera(tab || 'resumen');
+  // Cargar ingresos de ventas desde Supabase antes de renderizar
+  cargarIngresosVentas().then(() => renderBilletera(tab || 'resumen'));
   const ovl = document.getElementById('billetera-overlay');
   ovl.style.display = 'flex';
   ovl.style.alignItems = 'flex-start';
@@ -2990,14 +3182,24 @@ function renderBilleteraResumen() {
     <div class="bl-resumen-cards">
       <div class="bl-mini-card tarjeta">
         <span class="bl-mini-icon">💳</span>
-        <div class="bl-mini-label">Gastado con tarjeta</div>
-        <div class="bl-mini-val">$${res.gastoTarjeta.toLocaleString('es-MX')} MXN</div>
+        <div class="bl-mini-label">Saldo tarjeta</div>
+        <div class="bl-mini-val">$${res.saldoTarjeta.toLocaleString('es-MX')} MXN</div>
       </div>
       <div class="bl-mini-card acapoints">
         <span class="bl-mini-icon">🪙</span>
-        <div class="bl-mini-label">Gastado en AcaPoints</div>
-        <div class="bl-mini-val">${res.gastoAcapoints.toFixed(0)} pts</div>
+        <div class="bl-mini-label">Saldo AcaPoints</div>
+        <div class="bl-mini-val">${Math.floor(res.saldoAca)} pts</div>
       </div>
+      ${res.totalIngresos > 0 ? `
+      <div class="bl-mini-card ingreso" style="grid-column:1/-1;background:#f1f8e9;border:1.5px solid #a5d6a7;">
+        <span class="bl-mini-icon">💰</span>
+        <div class="bl-mini-label">Ingresos por ventas</div>
+        <div class="bl-mini-val" style="color:#2e7d32;">
+          ${res.ingresosTarjeta > 0 ? '$'+res.ingresosTarjeta.toLocaleString('es-MX')+' MXN' : ''}
+          ${res.ingresosTarjeta > 0 && res.ingresosAca > 0 ? ' · ' : ''}
+          ${res.ingresosAca > 0 ? Math.floor(res.ingresosAca)+' 🪙' : ''}
+        </div>
+      </div>` : ''}
     </div>
 
     <div class="bl-section-title">Últimos movimientos</div>
@@ -3013,7 +3215,7 @@ function renderBilleteraResumen() {
 
 // ── Tab Movimientos ──────────────────────────────────────
 function renderBilleteraMovimientos() {
-  const movs = billeteraGetAll();
+  const movs = billeteraGetAllConIngresos();
   if (movs.length === 0) return `<p style="text-align:center;color:#aaa;padding:40px 20px;font-size:14px;">Sin movimientos registrados.</p>`;
 
   // Agrupar por mes
@@ -3036,6 +3238,11 @@ function movHTML(m) {
     gasto_acapoints:  { icon:'🪙', color:'#e65100', signo:'-', label:'Pago con AcaPoints', bg:'#fff8f0' },
     recarga_acapoints:{ icon:'⬆️', color:'#2e7d32', signo:'+', label:'Recarga AcaPoints',  bg:'#f1f8e9' },
     retiro:           { icon:'🏦', color:'#1565c0', signo:'-', label:'Transferencia',       bg:'#e8f0fe' },
+    retiro_tarjeta:   { icon:'🏦', color:'#1565c0', signo:'-', label:'Retiro tarjeta',      bg:'#e8f0fe' },
+    retiro_aca:       { icon:'🏦', color:'#1565c0', signo:'-', label:'Retiro AcaPoints',    bg:'#e8f0fe' },
+    ingreso_tarjeta:  { icon:'💰', color:'#2e7d32', signo:'+', label:'Ingreso tarjeta',     bg:'#f1f8e9' },
+    ingreso_acapoints:{ icon:'💰', color:'#2e7d32', signo:'+', label:'Ingreso AcaPoints',   bg:'#f1f8e9' },
+    ingreso:          { icon:'💰', color:'#2e7d32', signo:'+', label:'Venta de servicio',   bg:'#f1f8e9' },
   };
   const t = conf[m.tipo] || { icon:'💰', color:'#555', signo:'', label:m.tipo, bg:'#f5f5f5' };
   const fecha = new Date(m.fecha).toLocaleDateString('es-MX', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
@@ -3648,5 +3855,249 @@ function renderAdminGanancias() {
       </div>
 
     </div>`;
+}
+
+
+/* =====================================================
+   MIS VENTAS — ACACONNECT
+   ===================================================== */
+
+let _misVentasData = [];
+
+// ── Abrir panel Mis Ventas ──────────────────────────────
+async function openMisVentas() {
+  if (!currentUser) { openModal('login'); return; }
+  const ovl = document.getElementById('misventas-overlay');
+  ovl.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  document.getElementById('mv-list').innerHTML = `
+    <div style="text-align:center;padding:40px 0;color:#aaa;">
+      <div style="font-size:32px;margin-bottom:8px;">⏳</div>
+      Cargando ventas...
+    </div>`;
+  await cargarMisVentas();
+}
+
+function closeMisVentas() {
+  document.getElementById('misventas-overlay').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+// ── Cargar ventas desde Supabase ────────────────────────
+async function cargarMisVentas(filtro) {
+  try {
+    const res = await fetch(
+      SUPA_URL + '/rest/v1/pagos?proveedor_id=eq.' + currentUser.id +
+      '&order=creado_en.desc&select=*',
+      { headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY } }
+    );
+
+    if (!res.ok) { renderMisVentasVacio('Error al cargar. Intenta de nuevo.'); return; }
+    const data = await res.json();
+    _misVentasData = data || [];
+
+    // Actualizar badge del nav
+    const badge = document.getElementById('nav-ventas-badge');
+    if (badge) {
+      if (_misVentasData.length > 0) {
+        badge.style.display = 'inline-block';
+        badge.textContent   = _misVentasData.length;
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+
+    renderMisVentas(filtro);
+  } catch(e) {
+    renderMisVentasVacio('Sin conexión. Intenta de nuevo.');
+  }
+}
+
+function renderMisVentasVacio(msg) {
+  document.getElementById('mv-list').innerHTML = `
+    <div style="text-align:center;padding:48px 20px;">
+      <div style="font-size:48px;margin-bottom:12px;">📭</div>
+      <h3 style="color:#1a1a1a;margin:0 0 8px;">Sin ventas aún</h3>
+      <p style="color:#888;font-size:14px;">${msg || 'Cuando alguien contrate tus servicios, aparecerán aquí.'}</p>
+    </div>`;
+}
+
+// ── Renderizar lista de ventas ──────────────────────────
+function renderMisVentas(filtro) {
+  const container = document.getElementById('mv-list');
+  let ventas = _misVentasData;
+
+  if (filtro) {
+    const q = filtro.toLowerCase();
+    ventas = ventas.filter(v =>
+      (v.folio||'').toLowerCase().includes(q) ||
+      (v.metodo_pago||'').toLowerCase().includes(q) ||
+      String(v.monto).includes(q)
+    );
+  }
+
+  // Stats
+  const totalVentas   = _misVentasData.length;
+  const totalMxn      = _misVentasData.reduce((s,v) => s + Number(v.monto||0), 0);
+  const ventasTarjeta = _misVentasData.filter(v => v.metodo_pago === 'tarjeta').length;
+  const ventasAca     = _misVentasData.filter(v => v.metodo_pago === 'acapoints').length;
+  const ventasEfect   = _misVentasData.filter(v => v.metodo_pago === 'efectivo').length;
+
+  document.getElementById('mv-stat-total').textContent  = totalVentas;
+  document.getElementById('mv-stat-monto').textContent  = '$' + totalMxn.toLocaleString('es-MX') + ' MXN';
+  document.getElementById('mv-stat-tarjeta').textContent= ventasTarjeta;
+  document.getElementById('mv-stat-aca').textContent    = ventasAca;
+
+  if (ventas.length === 0) { renderMisVentasVacio(); return; }
+
+  const metIcono = { efectivo:'💵', tarjeta:'💳', acapoints:'🪙' };
+  const metLabel = { efectivo:'Efectivo', tarjeta:'Tarjeta', acapoints:'AcaPoints' };
+  const metColor = { efectivo:'#e8f5e9', tarjeta:'#e3f2fd', acapoints:'#fff8e1' };
+  const metBorder= { efectivo:'#a5d6a7', tarjeta:'#90caf9', acapoints:'#ffe082' };
+  const metText  = { efectivo:'#2e7d32', tarjeta:'#1565c0', acapoints:'#f57f17' };
+
+  container.innerHTML = ventas.map(v => {
+    const fecha = new Date(v.creado_en).toLocaleDateString('es-MX', {
+      day:'2-digit', month:'short', year:'numeric'
+    });
+    const hora = new Date(v.creado_en).toLocaleTimeString('es-MX', {
+      hour:'2-digit', minute:'2-digit'
+    });
+    const folio = v.folio || ('ACA-' + String(v.id).toUpperCase());
+    const monto = Number(v.monto||0);
+    const met   = v.metodo_pago || 'efectivo';
+
+    return `
+    <div class="mv-card" onclick="openVentaDetalle('${v.id}')">
+
+      <div class="mv-folio-strip">
+        <div class="mv-folio-id">
+          <span class="mv-folio-label">ID de venta</span>
+          <span class="mv-folio-num">#${v.id}</span>
+        </div>
+        <div class="mv-folio-code">
+          <span class="mv-folio-label">Folio</span>
+          <span class="mv-folio-val">${folio}</span>
+        </div>
+        <div class="mv-estado-badge">✅ Completado</div>
+      </div>
+
+      <div class="mv-card-body">
+        <div class="mv-info-row">
+          <div class="mv-monto-block">
+            <span class="mv-monto-label">Monto recibido</span>
+            <span class="mv-monto-val">$${monto.toLocaleString('es-MX')} <small>MXN</small></span>
+          </div>
+          <div class="mv-metodo-block" style="background:${metColor[met]};border:1.5px solid ${metBorder[met]};">
+            <span style="font-size:18px;">${metIcono[met]}</span>
+            <span style="color:${metText[met]};font-weight:700;font-size:13px;">${metLabel[met]}</span>
+          </div>
+        </div>
+
+        <div class="mv-meta-row">
+          <span>🗓️ ${fecha} · ${hora}</span>
+          ${v.tarjeta_ultimos4 ? `<span>💳 ···· ${v.tarjeta_ultimos4}</span>` : ''}
+          ${v.acapoints_usados > 0 ? `<span>🪙 ${v.acapoints_usados} pts</span>` : ''}
+        </div>
+      </div>
+
+      <div class="mv-arrow">›</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Detalle de una venta ────────────────────────────────
+function openVentaDetalle(id) {
+  const v = _misVentasData.find(x => String(x.id) === String(id));
+  if (!v) return;
+
+  const folio  = v.folio || ('ACA-' + String(v.id).toUpperCase());
+  const monto  = Number(v.monto||0);
+  const met    = v.metodo_pago || 'efectivo';
+  const metLbl = { efectivo:'💵 Efectivo', tarjeta:'💳 Tarjeta simulada', acapoints:'🪙 AcaPoints' };
+  const fecha  = new Date(v.creado_en).toLocaleDateString('es-MX', {
+    weekday:'long', day:'2-digit', month:'long', year:'numeric'
+  });
+  const hora   = new Date(v.creado_en).toLocaleTimeString('es-MX', {
+    hour:'2-digit', minute:'2-digit', second:'2-digit'
+  });
+
+  document.getElementById('venta-detalle-body').innerHTML = `
+
+    <div class="vd-hero">
+      <div class="vd-hero-icon">📦</div>
+      <div class="vd-hero-id">#${v.id}</div>
+      <div class="vd-hero-folio">${folio}</div>
+      <div class="vd-hero-estado">✅ Venta completada</div>
+    </div>
+
+    <div class="vd-monto-grande">
+      <span class="vd-monto-lbl">Monto recibido</span>
+      <span class="vd-monto-num">$${monto.toLocaleString('es-MX')} MXN</span>
+    </div>
+
+    <div class="vd-section">
+      <div class="vd-section-title">🪪 Identificación</div>
+      <div class="vd-row">
+        <span>ID de venta</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <strong style="font-family:monospace;font-size:16px;color:#007a7a;">#${v.id}</strong>
+          <button class="cd-copy-btn" onclick="copyFolio('${v.id}')">📋</button>
+        </div>
+      </div>
+      <div class="vd-row">
+        <span>Folio</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <strong style="font-family:monospace;font-size:13px;">${folio}</strong>
+          <button class="cd-copy-btn" onclick="copyFolio('${folio}')">📋</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="vd-section">
+      <div class="vd-section-title">💰 Detalle del pago</div>
+      <div class="vd-row"><span>Monto</span><strong style="color:#007a7a;font-size:18px;">$${monto.toLocaleString('es-MX')} MXN</strong></div>
+      <div class="vd-row"><span>Método</span><strong>${metLbl[met]||met}</strong></div>
+      ${v.tarjeta_ultimos4 ? `<div class="vd-row"><span>Tarjeta</span><strong>•••• •••• •••• ${v.tarjeta_ultimos4}</strong></div>` : ''}
+      ${v.tarjeta_titular  ? `<div class="vd-row"><span>Titular</span><strong>${v.tarjeta_titular}</strong></div>` : ''}
+      ${v.acapoints_usados > 0 ? `<div class="vd-row"><span>AcaPoints usados</span><strong>🪙 ${v.acapoints_usados}</strong></div>` : ''}
+      <div class="vd-row"><span>Estado</span><span class="vd-badge-ok">✅ Completado</span></div>
+    </div>
+
+    <div class="vd-section">
+      <div class="vd-section-title">📅 Fecha y hora</div>
+      <div class="vd-row"><span>Fecha</span><strong>${fecha}</strong></div>
+      <div class="vd-row"><span>Hora</span><strong>${hora}</strong></div>
+    </div>
+
+
+
+    <div class="vd-section">
+      <div class="vd-section-title">✅ Verificación del cliente</div>
+      <p style="font-size:13px;color:#666;margin:0 0 10px;">El cliente puede mostrarte este folio para confirmar su compra.</p>
+      <div style="background:#f0faf8;border:1.5px solid #b2dfdb;border-radius:12px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div>
+          <div style="font-size:11px;color:#666;margin-bottom:3px;">Folio del cliente</div>
+          <div style="font-family:monospace;font-size:16px;font-weight:800;color:#007a7a;">${folio}</div>
+        </div>
+        <button class="cd-copy-btn" onclick="copyFolio('${folio}')">📋 Copiar</button>
+      </div>
+    </div>
+
+    <div class="cd-actions">
+      <button onclick="closeVentaDetalle()" class="cd-btn-secondary">‹ Volver a mis ventas</button>
+    </div>
+  `;
+
+  document.getElementById('misventas-overlay').style.display = 'none';
+  const det = document.getElementById('venta-detalle-overlay');
+  det.style.display = 'flex';
+  det.style.alignItems = 'flex-start';
+  det.style.justifyContent = 'center';
+}
+
+function closeVentaDetalle() {
+  document.getElementById('venta-detalle-overlay').style.display = 'none';
+  openMisVentas();
 }
 
