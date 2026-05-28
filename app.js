@@ -1707,6 +1707,9 @@ async function loadAdminList(tab) {
     } else if (tab === 'mensajes') {
       const msgs = await supaFetch('/rest/v1/mensajes_contacto?select=*&order=creado_en.desc');
       renderAdminMensajes(msgs);
+    } else if (tab === 'ganancias') {
+      renderAdminGanancias();
+      return;
     } else {
       const estado = tab === 'pendientes' ? 'pendiente' : tab === 'activos' ? 'activo' : 'rechazado';
       const data = await supaFetch('/rest/v1/servicios?select=*&estado=eq.' + estado + '&order=creado_en.desc');
@@ -3437,4 +3440,182 @@ function retirosGetAll() {
 }
 
 // ── Calcular resumen de billetera ───────────────────────
+
+
+/* =====================================================
+   ADMIN — PANEL DE GANANCIAS
+   ===================================================== */
+
+// Precios y márgenes oficiales de AcaPoints
+const ACA_PACKAGES = [
+  { mxn: 50,  pts: 42,  ganancia: 8,  margen: 16.0 },
+  { mxn: 100, pts: 85,  ganancia: 15, margen: 15.0 },
+  { mxn: 200, pts: 170, ganancia: 30, margen: 15.0 },
+  { mxn: 500, pts: 425, ganancia: 75, margen: 15.0 },
+];
+// Tasa retiro AcaPoints: usuario recibe $0.80 por punto → plataforma gana $0.20 extra por cada punto retirado
+const MARGEN_RETIRO_ACA = 0.20; // $0.20 por AcaPoint retirado
+
+function renderAdminGanancias() {
+  const list = document.getElementById('admin-list');
+
+  // Recopilar datos de todos los usuarios desde localStorage global
+  // (en producción real vendría de Supabase)
+  let totalVentaAca = 0, totalGananciaAca = 0, totalTransacciones = 0;
+  let totalRetirosAca = 0, totalGananciaRetiros = 0;
+  let ventasPorPaquete = { 50:0, 100:0, 200:0, 500:0 };
+
+  // Escanear todos los keys de localStorage que sean transacciones de AcaPoints
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('aca_tx_')) {
+        const txs = JSON.parse(localStorage.getItem(key) || '[]');
+        txs.forEach(tx => {
+          if (tx.tipo === 'compra' && tx.monto_mxn) {
+            const mxn = Number(tx.monto_mxn);
+            const pkg = ACA_PACKAGES.find(p => p.mxn === mxn);
+            if (pkg) {
+              totalVentaAca     += pkg.mxn;
+              totalGananciaAca  += pkg.ganancia;
+              totalTransacciones++;
+              ventasPorPaquete[pkg.mxn] = (ventasPorPaquete[pkg.mxn] || 0) + 1;
+            }
+          }
+          if (tx.tipo === 'reembolso' && tx.puntos) {
+            const pts = Number(tx.puntos);
+            totalRetirosAca       += pts;
+            totalGananciaRetiros  += pts * MARGEN_RETIRO_ACA;
+          }
+        });
+      }
+      // También leer billetera para retiros
+      if (key && key.startsWith('aca_billetera_')) {
+        const movs = JSON.parse(localStorage.getItem(key) || '[]');
+        movs.forEach(m => {
+          if (m.tipo === 'retiro_aca' && m.puntos) {
+            // ya contado arriba desde tx, evitar doble conteo
+          }
+        });
+      }
+    }
+  } catch(e) {}
+
+  const totalGananciaBruta = totalGananciaAca + totalGananciaRetiros;
+  const margenPromedio = totalVentaAca > 0
+    ? ((totalGananciaAca / totalVentaAca) * 100).toFixed(1) : '15.0';
+
+  // Chart data para paquetes
+  const maxVentas = Math.max(...Object.values(ventasPorPaquete), 1);
+  const barColors = { 50:'#42a5f5', 100:'#26c6da', 200:'#66bb6a', 500:'#ab47bc' };
+
+  list.innerHTML = `
+    <div class="ag-wrapper">
+
+      <!-- KPI cards -->
+      <div class="ag-kpis">
+        <div class="ag-kpi verde">
+          <div class="ag-kpi-icon">💰</div>
+          <div class="ag-kpi-val">$${totalGananciaBruta.toLocaleString('es-MX', {minimumFractionDigits:2})} MXN</div>
+          <div class="ag-kpi-label">Ganancia bruta total</div>
+        </div>
+        <div class="ag-kpi azul">
+          <div class="ag-kpi-icon">🪙</div>
+          <div class="ag-kpi-val">$${totalVentaAca.toLocaleString('es-MX')} MXN</div>
+          <div class="ag-kpi-label">Ventas de AcaPoints</div>
+        </div>
+        <div class="ag-kpi naranja">
+          <div class="ag-kpi-icon">📊</div>
+          <div class="ag-kpi-val">${margenPromedio}%</div>
+          <div class="ag-kpi-label">Margen promedio</div>
+        </div>
+        <div class="ag-kpi morado">
+          <div class="ag-kpi-icon">🔄</div>
+          <div class="ag-kpi-val">${totalTransacciones}</div>
+          <div class="ag-kpi-label">Transacciones</div>
+        </div>
+      </div>
+
+      <!-- Desglose de ganancias -->
+      <div class="ag-section">
+        <div class="ag-section-title">📋 Desglose de ganancias</div>
+        <div class="ag-table">
+          <div class="ag-table-head">
+            <span>Fuente</span><span>Ingresos</span><span>Costo</span><span>Ganancia</span><span>Margen</span>
+          </div>
+          ${ACA_PACKAGES.map(p => `
+          <div class="ag-table-row">
+            <span>🪙 Paquete $${p.mxn} MXN (${ventasPorPaquete[p.mxn]||0} ventas)</span>
+            <span>$${((ventasPorPaquete[p.mxn]||0)*p.mxn).toLocaleString('es-MX')}</span>
+            <span>$${((ventasPorPaquete[p.mxn]||0)*p.pts).toLocaleString('es-MX')}</span>
+            <span class="ag-green">+$${((ventasPorPaquete[p.mxn]||0)*p.ganancia).toLocaleString('es-MX')}</span>
+            <span><span class="ag-badge-green">${p.margen}%</span></span>
+          </div>`).join('')}
+          <div class="ag-table-row">
+            <span>🏦 Retiros AcaPoints (${totalRetirosAca.toFixed(0)} pts)</span>
+            <span>—</span>
+            <span>—</span>
+            <span class="ag-green">+$${totalGananciaRetiros.toLocaleString('es-MX',{minimumFractionDigits:2})}</span>
+            <span><span class="ag-badge-green">20%</span></span>
+          </div>
+          <div class="ag-table-row ag-total-row">
+            <span><strong>TOTAL</strong></span>
+            <span><strong>$${totalVentaAca.toLocaleString('es-MX')} MXN</strong></span>
+            <span><strong>$${(totalVentaAca - totalGananciaAca).toLocaleString('es-MX')}</strong></span>
+            <span><strong class="ag-green">+$${totalGananciaBruta.toLocaleString('es-MX',{minimumFractionDigits:2})}</strong></span>
+            <span><strong>${margenPromedio}%</strong></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gráfica de ventas por paquete -->
+      <div class="ag-section">
+        <div class="ag-section-title">📊 Ventas por paquete</div>
+        <div class="ag-chart">
+          ${ACA_PACKAGES.map(p => {
+            const ventas = ventasPorPaquete[p.mxn] || 0;
+            const pct = maxVentas > 0 ? (ventas / maxVentas * 100) : 0;
+            return `
+            <div class="ag-bar-row">
+              <div class="ag-bar-label">$${p.mxn} MXN → ${p.pts}pts</div>
+              <div class="ag-bar-wrap">
+                <div class="ag-bar" style="width:${Math.max(pct,2)}%;background:${barColors[p.mxn]}"></div>
+              </div>
+              <div class="ag-bar-val">${ventas} ventas · $${(ventas*p.ganancia).toLocaleString('es-MX')} gan.</div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <!-- Política de precios -->
+      <div class="ag-section">
+        <div class="ag-section-title">⚙️ Política de precios AcaPoints</div>
+        <div class="ag-policy">
+          <div class="ag-policy-row">
+            <span>💳 Valor para compras</span><strong>1 AcaPoint = $1.00 MXN</strong>
+          </div>
+          <div class="ag-policy-row">
+            <span>🏦 Tasa de retiro</span><strong>1 AcaPoint = $0.80 MXN</strong>
+          </div>
+          <div class="ag-policy-row">
+            <span>📈 Margen mínimo garantizado</span><strong class="ag-green">15%</strong>
+          </div>
+          <div class="ag-policy-row">
+            <span>💰 Ganancia en retiro por punto</span><strong class="ag-green">$0.20 MXN</strong>
+          </div>
+        </div>
+        <div class="ag-packages-preview">
+          ${ACA_PACKAGES.map(p => `
+          <div class="ag-pkg-preview">
+            <div class="ag-pkp-precio">$${p.mxn} MXN</div>
+            <div class="ag-pkp-arrow">→</div>
+            <div class="ag-pkp-pts">${p.pts} 🪙</div>
+            <div class="ag-pkp-ganancia">+$${p.ganancia} gan.</div>
+            <div class="ag-pkp-margen">${p.margen}%</div>
+          </div>`).join('')}
+        </div>
+      </div>
+
+    </div>`;
+}
 
