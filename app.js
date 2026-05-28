@@ -2111,7 +2111,7 @@ async function confirmPageBuyPoints() {
     await new Promise(r => setTimeout(r, 1100));
     const nuevoSaldo = userAcaPoints + acapSelectedPkg.pts;
 
-    await upsertWallet(nuevoSaldo);
+    await upsertWallet(nuevoSaldo, userSaldoTarjeta);
     txAdd({ tipo:'compra', puntos: acapSelectedPkg.pts, monto_mxn: acapSelectedPkg.mxn,
               descripcion: 'Compra de AcaPoints — $' + acapSelectedPkg.mxn + ' MXN' });
     billeteraAdd({
@@ -2211,45 +2211,38 @@ showPage = function(name) {
   }
 };
 
-// ── Wallet helpers — localStorage + Supabase (best-effort) ──
-function walletKey() { return 'aca_wallet_' + (currentUser?.id || 'guest'); }
-function txKey()     { return 'aca_tx_'     + (currentUser?.id || 'guest'); }
-function walletTarjetaKey() { return 'aca_wt_' + (currentUser?.id || 'guest'); }
+// ─────────────────────────────────────────────────────────
+// WALLET — Supabase como fuente de verdad + localStorage cache
+// Así el saldo es idéntico en celular, laptop y cualquier dispositivo
+// ─────────────────────────────────────────────────────────
 
-function walletTarjetaGet() {
-  try { return parseFloat(localStorage.getItem(walletTarjetaKey())) || 0; } catch(e) { return 0; }
-}
-function walletTarjetaSet(v) {
-  try { localStorage.setItem(walletTarjetaKey(), String(Math.max(0, v))); } catch(e) {}
-}
+let userSaldoTarjeta = 0; // saldo de pagos con tarjeta, retirable
 
-const TASA_RETIRO_ACA = 0.80;  // 1 AcaPoint → $0.80 MXN al retirar
-const TASA_RETIRO_TAR = 1.00;  // $1 MXN de tarjeta → $1.00 MXN al retirar
+function walletKey()       { return 'aca_wallet_' + (currentUser?.id || 'guest'); }
+function walletTarjetaKey(){ return 'aca_wt_'     + (currentUser?.id || 'guest'); }
+function txKey()           { return 'aca_tx_'     + (currentUser?.id || 'guest'); }
 
+const TASA_RETIRO_ACA = 0.80;
+const TASA_RETIRO_TAR = 1.00;
 
-function walletGet() {
-  try { return parseFloat(localStorage.getItem(walletKey())) || 0; } catch(e) { return 0; }
-}
-function walletSet(saldo) {
-  try { localStorage.setItem(walletKey(), String(saldo)); } catch(e) {}
-  userAcaPoints = saldo;
-  updateAcaPointsUI();
-}
-function txAdd(tx) {
-  try {
-    const list = JSON.parse(localStorage.getItem(txKey()) || '[]');
-    list.unshift({ ...tx, creado_en: new Date().toISOString(), id: Date.now() });
-    localStorage.setItem(txKey(), JSON.stringify(list.slice(0, 50)));
-  } catch(e) {}
-}
-function txGetAll() {
-  try { return JSON.parse(localStorage.getItem(txKey()) || '[]'); } catch(e) { return []; }
-}
+// ── Cache local (solo para UI instantánea, nunca fuente de verdad) ──
+function _cacheAcaGet()       { try { return parseFloat(localStorage.getItem(walletKey())) || 0; } catch(e) { return 0; } }
+function _cacheAcaSet(v)      { try { localStorage.setItem(walletKey(),       String(v)); } catch(e) {} }
+function _cacheTarjetaGet()   { try { return parseFloat(localStorage.getItem(walletTarjetaKey())) || 0; } catch(e) { return 0; } }
+function _cacheTarjetaSet(v)  { try { localStorage.setItem(walletTarjetaKey(), String(v)); } catch(e) {} }
 
-async function upsertWallet(nuevoSaldo) {
-  // 1. Guardar siempre en localStorage (nunca falla)
-  walletSet(nuevoSaldo);
-  // 2. Intentar sync con Supabase (best-effort, no bloquea)
+// Estos son los que usa el resto del código — mantienen UI + cache en sync
+function walletGet()           { return userAcaPoints; }
+function walletSet(v)          { userAcaPoints = Math.max(0, v); _cacheAcaSet(userAcaPoints); updateAcaPointsUI(); }
+function walletTarjetaGet()    { return userSaldoTarjeta; }
+function walletTarjetaSet(v)   { userSaldoTarjeta = Math.max(0, v); _cacheTarjetaSet(userSaldoTarjeta); }
+
+// ── Guardar en Supabase (ambos saldos en una sola fila) ─────────────
+async function upsertWallet(nuevoAca, nuevoTarjeta) {
+  const aca = (nuevoAca     !== undefined) ? nuevoAca     : userAcaPoints;
+  const tar = (nuevoTarjeta !== undefined) ? nuevoTarjeta : userSaldoTarjeta;
+  walletSet(aca);
+  walletTarjetaSet(tar);
   try {
     await fetch(SUPA_URL + '/rest/v1/wallets', {
       method: 'POST',
@@ -2259,28 +2252,63 @@ async function upsertWallet(nuevoSaldo) {
         'Content-Type': 'application/json',
         'Prefer': 'resolution=merge-duplicates,return=minimal'
       },
-      body: JSON.stringify({ usuario_id: currentUser.id, acapoints: nuevoSaldo, actualizado: new Date().toISOString() })
+      body: JSON.stringify({
+        usuario_id:     currentUser.id,
+        acapoints:      aca,
+        saldo_tarjeta:  tar,
+        actualizado:    new Date().toISOString()
+      })
     });
-  } catch(e) { /* sync falla silenciosamente */ }
+  } catch(e) { console.warn('wallet sync error:', e); }
 }
 
-// ── Cargar saldo AcaPoints del usuario ──────────────────
+// ── Cargar saldo desde Supabase al iniciar sesión ───────────────────
 async function loadWallet() {
   if (!currentUser) return;
-  // Cargar desde localStorage primero (instantáneo)
-  userAcaPoints = walletGet();
+  // Mostrar cache local mientras carga (UX instantánea)
+  userAcaPoints    = _cacheAcaGet();
+  userSaldoTarjeta = _cacheTarjetaGet();
   updateAcaPointsUI();
-  // Intentar sincronizar con Supabase para tener el saldo más reciente
   try {
-    const data = await supaFetch('/rest/v1/wallets?usuario_id=eq.' + currentUser.id + '&select=acapoints');
+    const data = await supaFetch(
+      '/rest/v1/wallets?usuario_id=eq.' + currentUser.id + '&select=acapoints,saldo_tarjeta'
+    );
     if (data && data.length > 0) {
-      const remoto = parseFloat(data[0].acapoints) || 0;
-      // Usar el mayor de los dos (por si se compraron en otro dispositivo)
-      const final = Math.max(remoto, userAcaPoints);
-      walletSet(final);
+      // Supabase siempre gana — es la fuente de verdad cross-device
+      walletSet(parseFloat(data[0].acapoints) || 0);
+      walletTarjetaSet(parseFloat(data[0].saldo_tarjeta) || 0);
+    } else {
+      // Primera vez: crear registro con saldos del cache local
+      await upsertWallet(userAcaPoints, userSaldoTarjeta);
     }
-    // Si no existe en Supabase, el localStorage es la fuente de verdad
-  } catch(e) { /* usar localStorage */ }
+  } catch(e) {
+    // Sin internet: usar cache local (saldo puede estar desactualizado)
+    console.warn('loadWallet offline, usando cache');
+  }
+}
+
+// ── Transacciones: Supabase + cache local ───────────────────────────
+function txAdd(tx) {
+  // Cache local para historial offline
+  try {
+    const list = JSON.parse(localStorage.getItem(txKey()) || '[]');
+    list.unshift({ ...tx, creado_en: new Date().toISOString(), id: Date.now() });
+    localStorage.setItem(txKey(), JSON.stringify(list.slice(0, 50)));
+  } catch(e) {}
+  // Sync Supabase
+  supaFetch('/rest/v1/transacciones_acapoints', {
+    method: 'POST',
+    body: JSON.stringify({
+      usuario_id:  currentUser?.id,
+      tipo:        tx.tipo,
+      puntos:      tx.puntos,
+      monto_mxn:   tx.monto_mxn,
+      descripcion: tx.descripcion
+    })
+  }).catch(() => {});
+}
+function txGetAll() {
+  try { return JSON.parse(localStorage.getItem(txKey()) || '[]'); } catch(e) { return []; }
 }
 
 // ── Mostrar métodos de pago en el detalle del servicio ──
@@ -2482,14 +2510,14 @@ async function confirmPago() {
     });
     // Acumular saldo retirable según método
     if (selectedPayMethod === 'tarjeta') {
-      walletTarjetaSet(walletTarjetaGet() + precio);
+      await upsertWallet(userAcaPoints, userSaldoTarjeta + precio);
     }
     supaFetch('/rest/v1/pagos', { method: 'POST', body: JSON.stringify({...pagoPayload, folio}) }).catch(()=>{});
 
     // Si pagó con AcaPoints → descontar de la wallet
     if (selectedPayMethod === 'acapoints') {
       const nuevoSaldo = userAcaPoints - precio;
-      await upsertWallet(nuevoSaldo);
+      await upsertWallet(nuevoSaldo, userSaldoTarjeta);
       txAdd({ tipo:'gasto', puntos: precio, descripcion: 'Pago por: ' + s.titulo });
       supaFetch('/rest/v1/transacciones_acapoints', { method:'POST', body: JSON.stringify({
         usuario_id: currentUser.id, tipo:'gasto', puntos: precio, descripcion: 'Pago por: ' + s.titulo
@@ -2576,7 +2604,7 @@ async function confirmBuyPoints() {
 
     // Actualizar wallet
     const nuevoSaldo = userAcaPoints + selectedPackage.pts;
-    await upsertWallet(nuevoSaldo);
+    await upsertWallet(nuevoSaldo, userSaldoTarjeta);
     txAdd({ tipo:'compra', puntos: selectedPackage.pts, monto_mxn: selectedPackage.mxn,
               descripcion: 'Compra de AcaPoints — $' + selectedPackage.mxn + ' MXN' });
     supaFetch('/rest/v1/transacciones_acapoints', { method:'POST', body: JSON.stringify({
@@ -2870,7 +2898,7 @@ function billeteraResumen() {
 
   // Saldos actuales disponibles para retirar
   const saldoAca     = userAcaPoints;
-  const saldoTarjeta = walletTarjetaGet();
+  const saldoTarjeta = userSaldoTarjeta;
 
   // Equivalente MXN al retirar (con tasas)
   const retirableAcaMxn     = Math.floor(saldoAca     * TASA_RETIRO_ACA * 100) / 100;
@@ -3198,18 +3226,21 @@ async function confirmarRetiro() {
   const folio           = 'RET-' + Date.now().toString(36).toUpperCase();
   const cuenta_ultimos4 = clabe.slice(-4);
 
-  // Descontar saldo tarjeta
+  // Descontar ambos saldos y guardar en Supabase en una sola operación
+  const nuevoAcaRet  = montoAca > 0 ? userAcaPoints - montoAca : userAcaPoints;
+  const nuevoTarRet  = montoTar > 0 ? userSaldoTarjeta - montoTar : userSaldoTarjeta;
+  await upsertWallet(nuevoAcaRet, nuevoTarRet);
   if (montoTar > 0) {
-    walletTarjetaSet(walletTarjetaGet() - montoTar);
     billeteraAdd({ tipo:'retiro_tarjeta', monto:montoTar,
       descripcion:`Retiro tarjeta → ${banco}`, folio, banco, cuenta_ultimos4 });
   }
   // Descontar AcaPoints
   if (montoAca > 0) {
-    await upsertWallet(userAcaPoints - montoAca);
+    {
     billeteraAdd({ tipo:'retiro_aca', puntos:montoAca, monto:mxnAca,
       descripcion:`Retiro AcaPoints → ${banco}`, folio, banco, cuenta_ultimos4 });
     txAdd({ tipo:'reembolso', puntos:montoAca, descripcion:`Retiro a ${banco} ····${cuenta_ultimos4}` });
+    }
   }
 
   // Guardar retiro
