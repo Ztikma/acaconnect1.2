@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="styles.css"/>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<script src="app.js" defer></script>
 <script>
   emailjs.init('vfk_47-On2SN3GzT1');
   window.EMAILJS_CONFIG = {
@@ -27,6 +28,7 @@
     <li><a onclick="showPage(&quot;publish&quot;)">Publicar</a></li>
     <li><a onclick="showPage('about')">Sobre Acapulco</a></li>
     <li><a onclick="showPage('contact')">Contacto</a></li>
+    <li><a onclick="showPage('acapoints')" style="color:var(--teal);font-weight:600;">🪙 AcaPoints</a></li>
   </ul>
   <div class="nav-actions" id="nav-actions">
     <!-- Switch de tema -->
@@ -50,6 +52,7 @@
   <a onclick="showPage('publish');closeMobileMenu()">📢 Publicar</a>
   <a onclick="showPage('about');closeMobileMenu()">🌊 Sobre Acapulco</a>
   <a onclick="showPage('contact');closeMobileMenu()">✉️ Contacto</a>
+  <a onclick="showPage('acapoints');closeMobileMenu()" style="color:var(--teal);font-weight:600;">🪙 AcaPoints</a>
 </div>
 
 <!-- HOME -->
@@ -328,6 +331,30 @@
         </div>
         <p class="hint">Los clientes te contactarán por WhatsApp. Si ya tienes teléfono en tu perfil, se usará ese por defecto.</p>
       </div>
+      <!-- MÉTODOS DE PAGO ACEPTADOS -->
+      <div class="form-group">
+        <label class="form-label">Métodos de pago que aceptas <span class="req">*</span></label>
+        <p class="hint" style="margin-bottom:10px;">Selecciona al menos uno. Los clientes verán estas opciones al contratar tu servicio.</p>
+        <div class="payment-methods-grid" id="pub-payment-methods">
+          <button type="button" class="pay-method-btn active" data-method="efectivo" onclick="togglePayMethod(this)">
+            <span class="pay-icon">💵</span>
+            <span class="pay-label">Efectivo</span>
+            <span class="pay-check">✓</span>
+          </button>
+          <button type="button" class="pay-method-btn active" data-method="tarjeta" onclick="togglePayMethod(this)">
+            <span class="pay-icon">💳</span>
+            <span class="pay-label">Tarjeta</span>
+            <span class="pay-check">✓</span>
+          </button>
+          <button type="button" class="pay-method-btn active" data-method="acapoints" onclick="togglePayMethod(this)">
+            <span class="pay-icon">🪙</span>
+            <span class="pay-label">AcaPoints</span>
+            <span class="pay-check">✓</span>
+          </button>
+        </div>
+        <p class="hint" style="margin-top:8px;">🪙 <strong>AcaPoints</strong> es la moneda virtual de AcaConnect. 1 AcaPoint = $1 MXN.</p>
+      </div>
+
       <div class="form-actions">
         <button class="btn-publish" onclick="publishService()">Publicar Servicio</button>
         <button class="btn-cancel" onclick="showPage('marketplace')">Cancelar</button>
@@ -466,6 +493,121 @@
         <h4>Experiencias del Mar</h4>
         <p>Pesca deportiva, buceo, snorkel, jet ski, parasailing y tours en lancha son algunas de las actividades acuáticas que ofrece la bahía de Santa Lucía.</p>
       </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ACAPOINTS -->
+<div id="page-acapoints" class="page">
+  <div class="acap-page-wrapper">
+
+    <!-- HERO -->
+    <div class="acap-hero">
+      <div class="acap-hero-coin">🪙</div>
+      <h2>AcaPoints</h2>
+      <p>La moneda oficial de AcaConnect. Úsalos para contratar servicios en segundos.</p>
+      <div class="acap-hero-balance" id="acap-hero-balance">
+        <span class="acap-bal-label">Tu saldo actual</span>
+        <span class="acap-bal-num" id="acap-page-balance">— AcaPoints</span>
+        <span class="acap-bal-sub">≈ $<span id="acap-page-mxn">0</span> MXN</span>
+      </div>
+    </div>
+
+    <!-- INFO CHIPS -->
+    <div class="acap-chips">
+      <div class="acap-chip">⚡ 1 AcaPoint = $1 MXN</div>
+      <div class="acap-chip">🔒 100% simulado · sin cargos reales</div>
+      <div class="acap-chip">🎁 Bonus de hasta 25%</div>
+    </div>
+
+    <!-- PAQUETES -->
+    <div class="acap-section">
+      <h3 class="acap-section-title">Elige tu paquete</h3>
+      <div class="acap-packages-grid">
+
+        <div class="acap-pkg" data-mxn="50" data-pts="55" onclick="selectAcapPkg(this)">
+          <div class="acap-pkg-coin">🪙</div>
+          <div class="acap-pkg-pts">55</div>
+          <div class="acap-pkg-ptslabel">AcaPoints</div>
+          <div class="acap-pkg-price">$50 MXN</div>
+          <div class="acap-pkg-bonus">+10% gratis</div>
+        </div>
+
+        <div class="acap-pkg" data-mxn="100" data-pts="115" onclick="selectAcapPkg(this)">
+          <div class="acap-pkg-coin">🪙</div>
+          <div class="acap-pkg-pts">115</div>
+          <div class="acap-pkg-ptslabel">AcaPoints</div>
+          <div class="acap-pkg-price">$100 MXN</div>
+          <div class="acap-pkg-bonus">+15% gratis</div>
+        </div>
+
+        <div class="acap-pkg popular" data-mxn="200" data-pts="240" onclick="selectAcapPkg(this)">
+          <div class="acap-pkg-popular-badge">⭐ Popular</div>
+          <div class="acap-pkg-coin">🪙</div>
+          <div class="acap-pkg-pts">240</div>
+          <div class="acap-pkg-ptslabel">AcaPoints</div>
+          <div class="acap-pkg-price">$200 MXN</div>
+          <div class="acap-pkg-bonus">+20% gratis</div>
+        </div>
+
+        <div class="acap-pkg" data-mxn="500" data-pts="625" onclick="selectAcapPkg(this)">
+          <div class="acap-pkg-coin">🪙</div>
+          <div class="acap-pkg-pts">625</div>
+          <div class="acap-pkg-ptslabel">AcaPoints</div>
+          <div class="acap-pkg-price">$500 MXN</div>
+          <div class="acap-pkg-bonus">+25% gratis</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- FORMULARIO DE COMPRA -->
+    <div class="acap-buy-form" id="acap-buy-form" style="display:none;">
+      <h3 class="acap-section-title">💳 Datos de pago <span style="font-size:13px;font-weight:400;color:var(--text-light)">(simulado)</span></h3>
+      <div class="acap-selected-summary" id="acap-selected-summary"></div>
+      <div class="form-card" style="padding:24px 20px;margin-top:16px;">
+        <div class="pay-info-box" style="background:#EBF5FF;border-color:#BBDAFF;margin-bottom:20px;">
+          <span>🔒</span>
+          <div><strong>Simulación de pago</strong><p>Ningún cargo real será realizado. Solo para demostración del sistema.</p></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Número de tarjeta</label>
+          <input class="form-input" id="acap-card-num" type="text" placeholder="•••• •••• •••• ••••" maxlength="19" oninput="formatCardNumber(this)"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Titular de la tarjeta</label>
+          <input class="form-input" id="acap-card-name" type="text" placeholder="NOMBRE APELLIDO"/>
+        </div>
+        <div class="row-2">
+          <div class="form-group">
+            <label class="form-label">Fecha de vencimiento</label>
+            <input class="form-input" id="acap-card-exp" type="text" placeholder="MM/AA" maxlength="5" oninput="formatExpiry(this)"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">CVV</label>
+            <input class="form-input" id="acap-card-cvv" type="text" placeholder="123" maxlength="3"/>
+          </div>
+        </div>
+        <button class="btn-publish" id="btn-acap-buy" onclick="confirmPageBuyPoints()" style="width:100%;margin-top:8px;">
+          🪙 Comprar AcaPoints
+        </button>
+      </div>
+    </div>
+
+    <!-- HISTORIAL -->
+    <div class="acap-section" id="acap-historial-section" style="display:none;">
+      <h3 class="acap-section-title">📋 Historial de movimientos</h3>
+      <div id="acap-historial-list"></div>
+    </div>
+
+    <!-- CTA si no está logueado -->
+    <div class="acap-login-cta" id="acap-login-cta" style="display:none;">
+      <div style="font-size:48px;margin-bottom:12px;">🔐</div>
+      <h3>Inicia sesión para comprar AcaPoints</h3>
+      <p>Necesitas una cuenta para gestionar tu saldo.</p>
+      <button class="btn-publish" onclick="openModal('login')" style="margin-top:16px;padding:14px 40px;">Iniciar Sesión</button>
     </div>
 
   </div>
@@ -659,6 +801,8 @@
         <div class="detail-price-box">
           <div class="detail-price" id="detail-price"></div>
           <div class="detail-price-type" id="detail-price-type"></div>
+          <div id="detail-pay-methods" style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;"></div>
+          <button class="btn-pay-service" id="btn-pay" onclick="openPayModal()">🛒 Contratar y Pagar</button>
           <button class="btn-contact-provider" id="btn-contact" onclick="contactProvider()">Contactar proveedor</button>
           <button class="btn-share" onclick="shareService()">🔗 Compartir</button>
         </div>
@@ -837,6 +981,235 @@
 </div>
 
 
-<script src="app.js"></script>
 </body>
 </html>
+
+
+
+<!-- ===================== BILLETERA VIRTUAL ===================== -->
+<div id="billetera-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:400;backdrop-filter:blur(5px);overflow-y:auto;padding:20px 16px;">
+  <div class="bl-modal">
+
+    <!-- Hero header -->
+    <div class="bl-header">
+      <button class="mc-close-btn" onclick="closeBilletera()">×</button>
+      <div class="bl-header-top">
+        <div class="bl-wallet-icon">💼</div>
+        <div>
+          <div class="bl-header-label">Mi Billetera</div>
+          <div class="bl-header-user" id="bl-header-user"></div>
+        </div>
+      </div>
+      <div class="bl-saldo-principal">
+        <div class="bl-saldo-label">Saldo disponible</div>
+        <div class="bl-saldo-num" id="bl-saldo-aca">0 🪙</div>
+        <div class="bl-saldo-equiv" id="bl-saldo-mxn">$0 MXN</div>
+      </div>
+      <div class="bl-stats-row">
+        <div class="bl-stat-item">
+          <span id="bl-gasto-tarjeta">$0</span>
+          <small>💳 Saldo tarjeta</small>
+        </div>
+        <div class="bl-stat-div"></div>
+        <div class="bl-stat-item">
+          <span id="bl-gasto-aca">0 🪙</span>
+          <small>🪙 AcaPoints</small>
+        </div>
+        <div class="bl-stat-div"></div>
+        <div class="bl-stat-item">
+          <span id="bl-recargado">$0</span>
+          <small>💰 Total retirable</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="bl-tabs">
+      <button class="bl-tab active" data-tab="resumen"     onclick="switchBilleteraTab('resumen')">Resumen</button>
+      <button class="bl-tab"        data-tab="movimientos" onclick="switchBilleteraTab('movimientos')">Movimientos</button>
+      <button class="bl-tab"        data-tab="retirar"     onclick="switchBilleteraTab('retirar')">Transferir</button>
+    </div>
+
+    <!-- Contenido dinámico -->
+    <div id="bl-content" class="bl-content"></div>
+
+  </div>
+</div>
+
+<!-- ===================== MIS COMPRAS ===================== -->
+<div id="miscompras-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:400;backdrop-filter:blur(4px);overflow-y:auto;padding:20px 16px;">
+  <div class="mc-modal">
+    <div class="mc-modal-header">
+      <button class="mc-close-btn" onclick="closeMisCompras()">×</button>
+      <h3>🛍️ Mis Compras</h3>
+      <p>Historial de servicios contratados</p>
+      <div class="mc-stats">
+        <div class="mc-stat"><span id="mc-stat-total">0</span><small>Compras</small></div>
+        <div class="mc-stat-div"></div>
+        <div class="mc-stat"><span id="mc-stat-monto">$0</span><small>Total gastado</small></div>
+      </div>
+      <div class="mc-search-wrap">
+        <svg width="15" height="15" fill="none" stroke="#aaa" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" placeholder="Buscar por folio, servicio…" oninput="renderMisCompras(this.value)" class="mc-search"/>
+      </div>
+    </div>
+    <div id="miscompras-list" class="mc-list"></div>
+  </div>
+</div>
+
+<!-- ===================== DETALLE COMPRA ===================== -->
+<div id="compra-detalle-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:401;backdrop-filter:blur(4px);overflow-y:auto;padding:20px 16px;">
+  <div class="mc-modal" style="max-width:500px;">
+    <div class="cd-modal-header">
+      <button class="mc-close-btn" onclick="closeCompraDetalle()">‹ Volver</button>
+      <h3>Detalle de compra</h3>
+    </div>
+    <div id="compra-detalle-body"></div>
+  </div>
+</div>
+
+<!-- ===================== MODAL DE PAGO ===================== -->
+<div class="modal-overlay" id="pay-modal-overlay" onclick="if(event.target===this)closePayModal()">
+  <div class="pay-modal">
+    <button class="modal-close" onclick="closePayModal()">×</button>
+    <h3>💳 Contratar Servicio</h3>
+    <div id="pay-service-info" class="pay-service-info"></div>
+
+    <!-- Selector de método de pago -->
+    <div class="form-group" style="margin-top:18px;">
+      <label class="form-label">Método de pago</label>
+      <div class="pay-method-selector" id="pay-method-selector"></div>
+    </div>
+
+    <!-- Panel: Efectivo -->
+    <div id="panel-efectivo" class="pay-panel">
+      <div class="pay-info-box">
+        <span>💵</span>
+        <div>
+          <strong>Pago en efectivo</strong>
+          <p>Coordina el pago directamente con el proveedor al momento del servicio. Se registrará tu reserva en el sistema.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel: Tarjeta -->
+    <div id="panel-tarjeta" class="pay-panel" style="display:none;">
+      <div class="pay-info-box" style="background:#EBF5FF;border-color:#BBDAFF;">
+        <span>🔒</span>
+        <div><strong>Pago simulado con tarjeta</strong><p>Datos de prueba — ningún cargo real será efectuado.</p></div>
+      </div>
+      <div class="form-group" style="margin-top:14px;">
+        <label class="form-label">Número de tarjeta</label>
+        <input class="form-input" id="card-number" type="text" placeholder="•••• •••• •••• ••••" maxlength="19" oninput="formatCardNumber(this)"/>
+      </div>
+      <div class="row-2">
+        <div class="form-group">
+          <label class="form-label">Titular</label>
+          <input class="form-input" id="card-name" type="text" placeholder="NOMBRE APELLIDO"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Fecha / CVV</label>
+          <div style="display:flex;gap:8px;">
+            <input class="form-input" id="card-exp" type="text" placeholder="MM/AA" maxlength="5" style="width:50%" oninput="formatExpiry(this)"/>
+            <input class="form-input" id="card-cvv" type="text" placeholder="CVV" maxlength="3" style="width:50%"/>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel: AcaPoints -->
+    <div id="panel-acapoints" class="pay-panel" style="display:none;">
+      <div class="acapoints-balance-box">
+        <div class="acapoints-logo">🪙</div>
+        <div>
+          <div class="acapoints-balance-label">Tu saldo</div>
+          <div class="acapoints-balance-num" id="modal-balance">0 AcaPoints</div>
+        </div>
+        <button class="btn-buy-points" onclick="openBuyPoints()">+ Comprar</button>
+      </div>
+      <div id="acapoints-insuficiente" class="pay-info-box" style="background:#FFF3CD;border-color:#FFC107;display:none;">
+        <span>⚠️</span>
+        <div><strong>Saldo insuficiente</strong><p>Compra más AcaPoints para continuar.</p></div>
+      </div>
+    </div>
+
+    <!-- Resumen de pago -->
+    <div class="pay-summary">
+      <div class="pay-summary-row"><span>Servicio</span><span id="sum-price"></span></div>
+      <div class="pay-summary-row pay-total"><span>Total a pagar</span><span id="sum-total"></span></div>
+    </div>
+
+    <button class="btn-publish" id="btn-confirm-pay" onclick="confirmPago()" style="width:100%;margin-top:16px;">
+      Confirmar Pago
+    </button>
+  </div>
+</div>
+
+<!-- ===================== MODAL COMPRAR ACAPOINTS ===================== -->
+<div class="modal-overlay" id="buypoints-modal-overlay" onclick="if(event.target===this)closeBuyPoints()">
+  <div class="pay-modal">
+    <button class="modal-close" onclick="closeBuyPoints()">×</button>
+    <h3>🪙 Comprar AcaPoints</h3>
+    <p style="color:var(--text-mid);font-size:14px;margin-bottom:16px;">Elige el paquete que más te convenga. Simulación — sin cargos reales.</p>
+
+    <div class="acapoints-packages" id="acapoints-packages">
+      <div class="ap-package" data-mxn="50" data-pts="55" onclick="selectPackage(this)">
+        <div class="ap-pkg-pts">55 🪙</div>
+        <div class="ap-pkg-price">$50 MXN</div>
+        <div class="ap-pkg-bonus">+10% bonus</div>
+      </div>
+      <div class="ap-package" data-mxn="100" data-pts="115" onclick="selectPackage(this)">
+        <div class="ap-pkg-pts">115 🪙</div>
+        <div class="ap-pkg-price">$100 MXN</div>
+        <div class="ap-pkg-bonus">+15% bonus</div>
+      </div>
+      <div class="ap-package" data-mxn="200" data-pts="240" onclick="selectPackage(this)">
+        <div class="ap-pkg-pts">240 🪙</div>
+        <div class="ap-pkg-price">$200 MXN</div>
+        <div class="ap-pkg-bonus popular-badge">⭐ Popular +20%</div>
+      </div>
+      <div class="ap-package" data-mxn="500" data-pts="625" onclick="selectPackage(this)">
+        <div class="ap-pkg-pts">625 🪙</div>
+        <div class="ap-pkg-price">$500 MXN</div>
+        <div class="ap-pkg-bonus">+25% bonus</div>
+      </div>
+    </div>
+
+    <div id="buypoints-card-form" style="display:none;margin-top:16px;">
+      <div class="pay-info-box" style="background:#EBF5FF;border-color:#BBDAFF;margin-bottom:14px;">
+        <span>🔒</span><div><strong>Pago simulado</strong><p>Solo para demostración.</p></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Número de tarjeta</label>
+        <input class="form-input" id="bp-card-number" type="text" placeholder="•••• •••• •••• ••••" maxlength="19" oninput="formatCardNumber(this)"/>
+      </div>
+      <div class="row-2">
+        <div class="form-group">
+          <label class="form-label">Titular</label>
+          <input class="form-input" id="bp-card-name" type="text" placeholder="NOMBRE APELLIDO"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Fecha / CVV</label>
+          <div style="display:flex;gap:8px;">
+            <input class="form-input" id="bp-card-exp" type="text" placeholder="MM/AA" maxlength="5" style="width:50%" oninput="formatExpiry(this)"/>
+            <input class="form-input" id="bp-card-cvv" type="text" placeholder="CVV" maxlength="3" style="width:50%"/>
+          </div>
+        </div>
+      </div>
+      <button class="btn-publish" onclick="confirmBuyPoints()" style="width:100%;margin-top:8px;">
+        Comprar AcaPoints
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MODAL ÉXITO PAGO ===================== -->
+<div class="modal-overlay" id="pago-success-overlay">
+  <div class="pay-modal" style="text-align:center;padding:40px 24px;">
+    <div style="font-size:64px;margin-bottom:16px;">✅</div>
+    <h3 style="margin-bottom:8px;">¡Pago completado!</h3>
+    <p id="pago-success-msg" style="color:var(--text-mid);margin-bottom:24px;"></p>
+    <button class="btn-publish" onclick="closePagoSuccess()" style="width:100%;">Cerrar</button>
+  </div>
+</div>
+

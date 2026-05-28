@@ -339,7 +339,8 @@ async function publishService() {
       precio, precio_tipo: pTipo, ubicacion,
       imagen_url: mainURL,
       fotos_extra: extrasURLs,
-      estado: 'pendiente', activo: true
+      estado: 'pendiente', activo: true,
+      metodos_pago: getSelectedPayMethods()
     };
     if (mapsUrl) payload.maps_url = mapsUrl;
 
@@ -719,6 +720,16 @@ function setUser(user) {
           <button class="dropdown-item" onclick="openMisPub()">
             <span class="item-icon">📋</span> Mis publicaciones
           </button>
+          <button class="dropdown-item" onclick="closeDropdown();openMisCompras()">
+            <span class="item-icon">🛍️</span> Mis compras
+          </button>
+          <button class="dropdown-item" onclick="closeDropdown();showPage('acapoints')" style="justify-content:space-between;">
+            <span><span class="item-icon">🪙</span> AcaPoints</span>
+            <span id="nav-acapoints-badge" style="background:rgba(0,128,128,.12);color:var(--teal);font-size:12px;font-weight:700;padding:2px 9px;border-radius:20px;">0</span>
+          </button>
+          <button class="dropdown-item" onclick="closeDropdown();openBilletera()">
+            <span class="item-icon">💼</span> Mi Billetera
+          </button>
           <button class="dropdown-item" onclick="openNotificaciones()" style="position:relative;">
             <span class="item-icon">🔔</span> Notificaciones
             <span class="notif-dot" id="notif-dot"></span>
@@ -744,6 +755,7 @@ function setUser(user) {
 
 function logout() {
   currentUser = null;
+  userAcaPoints = 0;
   try { localStorage.removeItem('aca_user'); } catch(e) {}
   document.getElementById('nav-actions').innerHTML = `
     <button class="btn-login" onclick="openModal('login')">Iniciar Sesión</button>
@@ -797,15 +809,66 @@ function closeDropdown() {
 // ═══════════════════════════════════════════════
 //  NOTIFICACIONES
 // ═══════════════════════════════════════════════
+
+// ── Crear notificación de pago (localStorage + Supabase best-effort) ──
+function localNotifKey() { return 'aca_notif_' + (currentUser?.id || 'guest'); }
+
+function localNotifAdd(notif) {
+  try {
+    const list = JSON.parse(localStorage.getItem(localNotifKey()) || '[]');
+    list.unshift({ ...notif, id: 'local_' + Date.now(), leida: false, creado_en: new Date().toISOString() });
+    localStorage.setItem(localNotifKey(), JSON.stringify(list.slice(0, 50)));
+  } catch(e) {}
+}
+
+function localNotifGetAll() {
+  try { return JSON.parse(localStorage.getItem(localNotifKey()) || '[]'); } catch(e) { return []; }
+}
+
+function localNotifMarkRead(id) {
+  try {
+    const list = JSON.parse(localStorage.getItem(localNotifKey()) || '[]');
+    const idx = list.findIndex(n => n.id === id);
+    if (idx >= 0) { list[idx].leida = true; localStorage.setItem(localNotifKey(), JSON.stringify(list)); }
+  } catch(e) {}
+}
+
+function localNotifMarkAllRead() {
+  try {
+    const list = JSON.parse(localStorage.getItem(localNotifKey()) || '[]');
+    list.forEach(n => n.leida = true);
+    localStorage.setItem(localNotifKey(), JSON.stringify(list));
+  } catch(e) {}
+}
+
+async function crearNotifPago(titulo, mensaje, tipo) {
+  // 1. Guardar local siempre
+  localNotifAdd({ titulo, mensaje, tipo });
+  // 2. Actualizar punto rojo inmediatamente
+  const dot = document.getElementById('notif-dot');
+  if (dot) dot.classList.add('visible');
+  // 3. Intentar guardar en Supabase (best-effort)
+  try {
+    await supaFetch('/rest/v1/notificaciones', {
+      method: 'POST',
+      body: JSON.stringify({ usuario_id: currentUser.id, titulo, mensaje, tipo, leida: false })
+    });
+  } catch(e) { /* silencioso */ }
+}
+
 async function loadNotifCount() {
   if (!currentUser) return;
+  // Contar locales no leídas
+  const localUnread = localNotifGetAll().filter(n => !n.leida).length;
+  const dot = document.getElementById('notif-dot');
+  if (localUnread > 0) { if (dot) dot.classList.add('visible'); return; }
+  // Si no hay locales, revisar Supabase
   try {
     const data = await supaFetch(
       '/rest/v1/notificaciones?usuario_id=eq.' + currentUser.id + '&leida=eq.false&select=id'
     );
-    const dot = document.getElementById('notif-dot');
     if (dot) dot.classList.toggle('visible', data.length > 0);
-  } catch(e) { /* tabla puede no existir aún */ }
+  } catch(e) { if (dot) dot.classList.remove('visible'); }
 }
 
 function openNotificaciones() {
@@ -822,37 +885,69 @@ async function renderNotifList() {
   const list = document.getElementById('notif-list');
   list.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Cargando...</p></div>';
   if (!currentUser) return;
+
+  // Notifs locales (pagos, AcaPoints) — siempre disponibles
+  const locales = localNotifGetAll().map(n => ({ ...n, _local: true }));
+
+  // Notifs de Supabase (aprobaciones admin) — best-effort
+  let remotas = [];
   try {
-    const data = await supaFetch(
+    remotas = await supaFetch(
       '/rest/v1/notificaciones?usuario_id=eq.' + currentUser.id +
       '&order=creado_en.desc&limit=30'
-    );
-    if (!data.length) {
-      list.innerHTML = '<div class="notif-empty"><div class="icon">🔔</div><p>Sin notificaciones por ahora</p></div>';
-      return;
-    }
-    list.innerHTML = data.map(n => {
-      const esAceptado = n.tipo === 'activo';
-      const fecha = timeAgo(n.creado_en);
-      return `
-        <div class="notif-item ${n.leida ? '' : 'unread'}" onclick="marcarLeida('${n.id}', this)">
-          <div class="notif-icon ${esAceptado ? 'accepted' : 'rejected'}">
-            ${esAceptado ? '✅' : '❌'}
-          </div>
-          <div class="notif-body">
-            <div class="notif-title">${n.titulo}</div>
-            <div class="notif-desc">${n.mensaje}</div>
-            <div class="notif-time">${fecha}</div>
-          </div>
-          ${n.leida ? '' : '<div class="notif-unread-dot"></div>'}
-        </div>`;
-    }).join('');
-    // Actualizar punto rojo
-    const dot = document.getElementById('notif-dot');
-    if (dot) dot.classList.toggle('visible', data.some(n => !n.leida));
-  } catch(e) {
-    list.innerHTML = '<div class="notif-empty"><div class="icon">⚠️</div><p>No se pudieron cargar las notificaciones</p></div>';
+    ) || [];
+  } catch(e) {}
+
+  // Merge: remotas primero, luego locales, ordenadas por fecha
+  const todas = [...remotas, ...locales].sort((a, b) =>
+    new Date(b.creado_en) - new Date(a.creado_en)
+  ).slice(0, 40);
+
+  if (!todas.length) {
+    list.innerHTML = '<div class="notif-empty"><div class="icon">🔔</div><p>Sin notificaciones por ahora</p></div>';
+    return;
   }
+
+  const iconosTipo = {
+    activo: '✅', rechazado: '❌',
+    pago_efectivo: '💵', pago_tarjeta: '💳', pago_acapoints: '🪙',
+    compra_acapoints: '🪙'
+  };
+  const clasesTipo = {
+    activo: 'accepted', rechazado: 'rejected',
+    pago_efectivo: 'payment', pago_tarjeta: 'payment', pago_acapoints: 'payment',
+    compra_acapoints: 'payment'
+  };
+
+  list.innerHTML = todas.map(n => {
+    const icono = iconosTipo[n.tipo] || '🔔';
+    const clase = clasesTipo[n.tipo] || 'accepted';
+    const fecha = timeAgo(n.creado_en);
+    const onclk = n._local
+      ? `marcarLeidaLocal('${n.id}', this)`
+      : `marcarLeida('${n.id}', this)`;
+    return `
+      <div class="notif-item ${n.leida ? '' : 'unread'}" onclick="${onclk}">
+        <div class="notif-icon ${clase}">${icono}</div>
+        <div class="notif-body">
+          <div class="notif-title">${n.titulo}</div>
+          <div class="notif-desc">${n.mensaje}</div>
+          <div class="notif-time">${fecha}</div>
+        </div>
+        ${n.leida ? '' : '<div class="notif-unread-dot"></div>'}
+      </div>`;
+  }).join('');
+
+  const dot = document.getElementById('notif-dot');
+  if (dot) dot.classList.toggle('visible', todas.some(n => !n.leida));
+}
+
+function marcarLeidaLocal(id, el) {
+  el.classList.remove('unread');
+  const dot = el.querySelector('.notif-unread-dot');
+  if (dot) dot.remove();
+  localNotifMarkRead(id);
+  loadNotifCount();
 }
 
 async function marcarLeida(id, el) {
@@ -877,10 +972,10 @@ async function marcarTodasLeidas() {
   });
   const dotEl = document.getElementById('notif-dot');
   if (dotEl) dotEl.classList.remove('visible');
+  localNotifMarkAllRead();
   try {
     await supaFetch('/rest/v1/notificaciones?usuario_id=eq.' + currentUser.id + '&leida=eq.false', {
-      method: 'PATCH',
-      body: JSON.stringify({ leida: true })
+      method: 'PATCH', body: JSON.stringify({ leida: true })
     });
   } catch(e) {}
 }
@@ -1967,3 +2062,1379 @@ function showToast(msg) {
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 3000);
 }
+
+/* =====================================================
+   SISTEMA DE PAGOS - ACACONNECT
+   ===================================================== */
+
+// Estado global de pagos
+let selectedPayMethod = null;
+let selectedPackage = null;
+let userAcaPoints = 0;
+
+// ── Página AcaPoints ─────────────────────────────────────
+let acapSelectedPkg = null;
+
+function selectAcapPkg(el) {
+  document.querySelectorAll('.acap-pkg').forEach(p => p.classList.remove('selected'));
+  el.classList.add('selected');
+  acapSelectedPkg = { mxn: parseFloat(el.dataset.mxn), pts: parseFloat(el.dataset.pts) };
+  const form = document.getElementById('acap-buy-form');
+  form.style.display = 'block';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.getElementById('acap-selected-summary').innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;background:rgba(0,128,128,.08);border:1.5px solid var(--teal);border-radius:12px;padding:14px 18px;">
+      <div><span style="font-size:22px;">🪙</span> <strong>${acapSelectedPkg.pts} AcaPoints</strong></div>
+      <div style="font-size:18px;font-weight:700;color:var(--teal);">$${acapSelectedPkg.mxn} MXN</div>
+    </div>`;
+}
+
+async function confirmPageBuyPoints() {
+  if (!currentUser) { openModal('login'); return; }
+  if (!acapSelectedPkg) { showToast('⚠️ Selecciona un paquete primero'); return; }
+  const num  = (document.getElementById('acap-card-num').value || '').replace(/\s/g,'');
+  const name = (document.getElementById('acap-card-name').value || '').trim();
+  const exp  = (document.getElementById('acap-card-exp').value || '').trim();
+  const cvv  = (document.getElementById('acap-card-cvv').value || '').trim();
+  if (num.length < 16) { showToast('⚠️ Número de tarjeta inválido'); return; }
+  if (!name)           { showToast('⚠️ Ingresa el nombre del titular'); return; }
+  if (exp.length < 5)  { showToast('⚠️ Fecha inválida'); return; }
+  if (cvv.length < 3)  { showToast('⚠️ CVV inválido'); return; }
+
+  const btn = document.getElementById('btn-acap-buy');
+  btn.textContent = 'Procesando...'; btn.disabled = true;
+
+  try {
+    await new Promise(r => setTimeout(r, 1100));
+    const nuevoSaldo = userAcaPoints + acapSelectedPkg.pts;
+
+    await upsertWallet(nuevoSaldo);
+    txAdd({ tipo:'compra', puntos: acapSelectedPkg.pts, monto_mxn: acapSelectedPkg.mxn,
+              descripcion: 'Compra de AcaPoints — $' + acapSelectedPkg.mxn + ' MXN' });
+    billeteraAdd({
+      tipo: 'recarga_acapoints',
+      monto: acapSelectedPkg.mxn,
+      puntos: acapSelectedPkg.pts,
+      metodo: 'tarjeta',
+      descripcion: 'Recarga: ' + acapSelectedPkg.pts + ' AcaPoints'
+    });
+    // Sync Supabase best-effort
+    supaFetch('/rest/v1/transacciones_acapoints', { method:'POST', body: JSON.stringify({
+      usuario_id: currentUser.id, tipo:'compra', puntos: acapSelectedPkg.pts,
+      monto_mxn: acapSelectedPkg.mxn, descripcion: 'Compra de AcaPoints — $' + acapSelectedPkg.mxn + ' MXN'
+    })}).catch(()=>{});
+
+    await crearNotifPago(
+      '🪙 AcaPoints comprados',
+      'Compraste ' + acapSelectedPkg.pts + ' AcaPoints por $' + acapSelectedPkg.mxn + ' MXN. Saldo actual: ' + nuevoSaldo.toFixed(0) + ' AcaPoints.',
+      'compra_acapoints'
+    );
+    showToast('✅ ¡' + acapSelectedPkg.pts + ' AcaPoints añadidos a tu cuenta!');
+
+    // Reset form
+    document.getElementById('acap-buy-form').style.display = 'none';
+    document.getElementById('acap-card-num').value = '';
+    document.getElementById('acap-card-name').value = '';
+    document.getElementById('acap-card-exp').value = '';
+    document.getElementById('acap-card-cvv').value = '';
+    document.querySelectorAll('.acap-pkg').forEach(p => p.classList.remove('selected'));
+    acapSelectedPkg = null;
+
+    // Recargar historial
+    loadAcaHistorial();
+
+  } catch(e) {
+    showToast('❌ Error al procesar. Intenta de nuevo.'); console.error(e);
+  } finally {
+    btn.textContent = '🪙 Comprar AcaPoints'; btn.disabled = false;
+  }
+}
+
+async function loadAcaHistorial() {
+  const section = document.getElementById('acap-historial-section');
+  const list    = document.getElementById('acap-historial-list');
+  if (!section || !list || !currentUser) return;
+  section.style.display = 'block';
+  // Leer desde localStorage (siempre disponible)
+  const data = txGetAll();
+  if (!data || data.length === 0) {
+    list.innerHTML = '<p style="color:var(--text-light);font-size:14px;text-align:center;padding:20px 0;">Aún no tienes movimientos.</p>';
+    return;
+  }
+  const iconos = { compra:'🟢', gasto:'🔴', reembolso:'🔵' };
+  const signos = { compra:'+', gasto:'-', reembolso:'+' };
+  list.innerHTML = data.map(tx => {
+    const fecha = new Date(tx.creado_en).toLocaleDateString('es-MX', { day:'2-digit', month:'short', year:'numeric' });
+    return `<div class="acap-tx-row">
+      <span class="acap-tx-icon">${iconos[tx.tipo] || '⚪'}</span>
+      <div class="acap-tx-desc">
+        <strong>${tx.descripcion || tx.tipo}</strong>
+        <span>${fecha}</span>
+      </div>
+      <div class="acap-tx-pts ${tx.tipo}">${signos[tx.tipo]}${tx.puntos} 🪙</div>
+    </div>`;
+  }).join('');
+}
+
+function updateAcaPointsUI() {
+  // Badge en dropdown del nav
+  const badge = document.getElementById('nav-acapoints-badge');
+  if (badge) badge.textContent = Math.floor(userAcaPoints);
+  // Página de AcaPoints
+  const balNum = document.getElementById('acap-page-balance');
+  const balMxn = document.getElementById('acap-page-mxn');
+  if (balNum) balNum.textContent = Math.floor(userAcaPoints) + ' AcaPoints';
+  if (balMxn) balMxn.textContent = Math.floor(userAcaPoints).toLocaleString('es-MX');
+  // Modal de pago
+  const modalBal = document.getElementById('modal-balance');
+  if (modalBal) modalBal.textContent = Math.floor(userAcaPoints) + ' AcaPoints';
+}
+
+// Hook showPage para cargar datos cuando se entra a la página
+const _origShowPage = showPage;
+showPage = function(name) {
+  _origShowPage(name);
+  if (name === 'acapoints') {
+    if (!currentUser) {
+      document.getElementById('acap-hero-balance').style.display = 'none';
+      document.getElementById('acap-login-cta').style.display = 'block';
+      document.querySelector('.acap-packages-grid') && (document.querySelector('.acap-packages-grid').style.opacity = '.4');
+    } else {
+      document.getElementById('acap-login-cta').style.display = 'none';
+      document.getElementById('acap-hero-balance').style.display = 'flex';
+      updateAcaPointsUI();
+      loadAcaHistorial();
+    }
+  }
+};
+
+// ── Wallet helpers — localStorage + Supabase (best-effort) ──
+function walletKey() { return 'aca_wallet_' + (currentUser?.id || 'guest'); }
+function txKey()     { return 'aca_tx_'     + (currentUser?.id || 'guest'); }
+function walletTarjetaKey() { return 'aca_wt_' + (currentUser?.id || 'guest'); }
+
+function walletTarjetaGet() {
+  try { return parseFloat(localStorage.getItem(walletTarjetaKey())) || 0; } catch(e) { return 0; }
+}
+function walletTarjetaSet(v) {
+  try { localStorage.setItem(walletTarjetaKey(), String(Math.max(0, v))); } catch(e) {}
+}
+
+const TASA_RETIRO_ACA = 0.80;  // 1 AcaPoint → $0.80 MXN al retirar
+const TASA_RETIRO_TAR = 1.00;  // $1 MXN de tarjeta → $1.00 MXN al retirar
+
+
+function walletGet() {
+  try { return parseFloat(localStorage.getItem(walletKey())) || 0; } catch(e) { return 0; }
+}
+function walletSet(saldo) {
+  try { localStorage.setItem(walletKey(), String(saldo)); } catch(e) {}
+  userAcaPoints = saldo;
+  updateAcaPointsUI();
+}
+function txAdd(tx) {
+  try {
+    const list = JSON.parse(localStorage.getItem(txKey()) || '[]');
+    list.unshift({ ...tx, creado_en: new Date().toISOString(), id: Date.now() });
+    localStorage.setItem(txKey(), JSON.stringify(list.slice(0, 50)));
+  } catch(e) {}
+}
+function txGetAll() {
+  try { return JSON.parse(localStorage.getItem(txKey()) || '[]'); } catch(e) { return []; }
+}
+
+async function upsertWallet(nuevoSaldo) {
+  // 1. Guardar siempre en localStorage (nunca falla)
+  walletSet(nuevoSaldo);
+  // 2. Intentar sync con Supabase (best-effort, no bloquea)
+  try {
+    await fetch(SUPA_URL + '/rest/v1/wallets', {
+      method: 'POST',
+      headers: {
+        'apikey': SUPA_KEY,
+        'Authorization': 'Bearer ' + SUPA_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=minimal'
+      },
+      body: JSON.stringify({ usuario_id: currentUser.id, acapoints: nuevoSaldo, actualizado: new Date().toISOString() })
+    });
+  } catch(e) { /* sync falla silenciosamente */ }
+}
+
+// ── Cargar saldo AcaPoints del usuario ──────────────────
+async function loadWallet() {
+  if (!currentUser) return;
+  // Cargar desde localStorage primero (instantáneo)
+  userAcaPoints = walletGet();
+  updateAcaPointsUI();
+  // Intentar sincronizar con Supabase para tener el saldo más reciente
+  try {
+    const data = await supaFetch('/rest/v1/wallets?usuario_id=eq.' + currentUser.id + '&select=acapoints');
+    if (data && data.length > 0) {
+      const remoto = parseFloat(data[0].acapoints) || 0;
+      // Usar el mayor de los dos (por si se compraron en otro dispositivo)
+      const final = Math.max(remoto, userAcaPoints);
+      walletSet(final);
+    }
+    // Si no existe en Supabase, el localStorage es la fuente de verdad
+  } catch(e) { /* usar localStorage */ }
+}
+
+// ── Mostrar métodos de pago en el detalle del servicio ──
+function renderPayMethods(metodos) {
+  const el = document.getElementById('detail-pay-methods');
+  if (!el) return;
+  const labels = { efectivo:'💵 Efectivo', tarjeta:'💳 Tarjeta', acapoints:'🪙 AcaPoints' };
+  const arr = Array.isArray(metodos) && metodos.length ? metodos : ['efectivo','tarjeta','acapoints'];
+  el.innerHTML = arr.map(m => `<span class="pay-badge">${labels[m] || m}</span>`).join('');
+}
+
+// ── Toggle métodos en formulario de publicación ─────────
+function togglePayMethod(btn) {
+  btn.classList.toggle('active');
+  const activos = document.querySelectorAll('.pay-method-btn.active');
+  if (activos.length === 0) {
+    btn.classList.add('active'); // Siempre al menos uno
+    showToast('⚠️ Debes aceptar al menos un método de pago');
+  }
+}
+function getSelectedPayMethods() {
+  return Array.from(document.querySelectorAll('.pay-method-btn.active')).map(b => b.dataset.method);
+}
+
+// ── Abrir modal de pago ─────────────────────────────────
+async function openPayModal() {
+  if (!currentUser) { openModal('login'); showToast('Inicia sesión para contratar servicios'); return; }
+  if (!currentDetail) return;
+
+  const s = currentDetail;
+  const precio = Number(s.precio);
+
+  // Info del servicio
+  document.getElementById('pay-service-info').innerHTML = `
+    <img src="${s.imagen_url || ''}" alt="${s.titulo}" onerror="this.src='https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=100'"/>
+    <div>
+      <div class="psi-title">${s.titulo}</div>
+      <div class="psi-price">$${precio.toLocaleString('es-MX')} <span style="font-size:13px;font-weight:400;color:rgba(0,128,128,.7)">/ ${s.precio_tipo}</span></div>
+    </div>`;
+
+  // Métodos disponibles del servicio
+  const metodos = Array.isArray(s.metodos_pago) && s.metodos_pago.length
+    ? s.metodos_pago : ['efectivo','tarjeta','acapoints'];
+
+  const labels = { efectivo:'💵 Efectivo', tarjeta:'💳 Tarjeta', acapoints:'🪙 AcaPoints' };
+  const selector = document.getElementById('pay-method-selector');
+  selector.innerHTML = metodos.map(m => `
+    <button class="pay-method-opt" data-method="${m}" onclick="selectPayMethod(this,'${m}')">
+      <span class="pmo-icon">${m==='efectivo'?'💵':m==='tarjeta'?'💳':'🪙'}</span>
+      ${m==='acapoints'?'AcaPoints':labels[m].split(' ')[1]}
+    </button>`).join('');
+
+  // Resumen
+  document.getElementById('sum-price').textContent = '$' + precio.toLocaleString('es-MX') + ' MXN';
+  document.getElementById('sum-total').textContent = '$' + precio.toLocaleString('es-MX') + ' MXN';
+
+  // Cargar saldo
+  await loadWallet();
+  document.getElementById('modal-balance').textContent = userAcaPoints.toFixed(0) + ' AcaPoints';
+
+  // Seleccionar primer método disponible
+  selectedPayMethod = metodos[0];
+  const firstBtn = selector.querySelector('.pay-method-opt');
+  if (firstBtn) { firstBtn.classList.add('active'); showPayPanel(metodos[0]); }
+
+  // Cerrar el detail overlay para que el modal de pago quede limpio en primer plano
+  document.getElementById('detail-overlay').classList.remove('open');
+  // Restaurar scroll iOS si aplica
+  const scrollY = document.body.dataset.scrollY;
+  document.body.style.cssText = '';
+  if (scrollY !== undefined) window.scrollTo(0, parseInt(scrollY) || 0);
+
+  const overlay = document.getElementById('pay-modal-overlay');
+  overlay.style.display = 'flex';
+  overlay.style.alignItems = 'center';
+  overlay.style.justifyContent = 'center';
+}
+
+function selectPayMethod(btn, method) {
+  document.querySelectorAll('.pay-method-opt').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  selectedPayMethod = method;
+  showPayPanel(method);
+}
+
+function showPayPanel(method) {
+  ['efectivo','tarjeta','acapoints'].forEach(m => {
+    const p = document.getElementById('panel-' + m);
+    if (p) p.style.display = m === method ? 'block' : 'none';
+  });
+  if (method === 'acapoints') {
+    const precio = Number(currentDetail?.precio || 0);
+    const insuf = document.getElementById('acapoints-insuficiente');
+    if (insuf) insuf.style.display = userAcaPoints < precio ? 'flex' : 'none';
+    document.getElementById('sum-total').textContent = precio.toFixed(0) + ' AcaPoints 🪙';
+  } else {
+    const precio = Number(currentDetail?.precio || 0);
+    document.getElementById('sum-total').textContent = '$' + precio.toLocaleString('es-MX') + ' MXN';
+  }
+}
+
+function closePayModal() {
+  document.getElementById('pay-modal-overlay').style.display = 'none';
+  selectedPayMethod = null;
+  // Reabrir el detalle del servicio si currentDetail sigue activo
+  if (currentDetail) {
+    const overlay = document.getElementById('detail-overlay');
+    overlay.classList.add('open');
+    const isMobile = window.innerWidth <= 768;
+    if (isMobile) {
+      document.body.dataset.scrollY = window.scrollY;
+      document.body.style.cssText = 'overflow:hidden;position:fixed;top:-' + window.scrollY + 'px;width:100%;';
+    } else {
+      document.body.style.overflow = 'hidden';
+    }
+  }
+}
+
+// ── Confirmar pago ──────────────────────────────────────
+async function confirmPago() {
+  if (!currentDetail || !currentUser) return;
+  if (!selectedPayMethod) { showToast('⚠️ Selecciona un método de pago'); return; }
+
+  const s = currentDetail;
+  const precio = Number(s.precio);
+  const btn = document.getElementById('btn-confirm-pay');
+
+  // Validar tarjeta
+  if (selectedPayMethod === 'tarjeta') {
+    const num  = (document.getElementById('card-number').value || '').replace(/\s/g,'');
+    const name = (document.getElementById('card-name').value || '').trim();
+    const exp  = (document.getElementById('card-exp').value || '').trim();
+    const cvv  = (document.getElementById('card-cvv').value || '').trim();
+    if (num.length < 16) { showToast('⚠️ Número de tarjeta inválido'); return; }
+    if (!name)           { showToast('⚠️ Ingresa el nombre del titular'); return; }
+    if (exp.length < 5)  { showToast('⚠️ Fecha inválida'); return; }
+    if (cvv.length < 3)  { showToast('⚠️ CVV inválido'); return; }
+  }
+
+  // Validar AcaPoints
+  if (selectedPayMethod === 'acapoints') {
+    if (userAcaPoints < precio) {
+      showToast('⚠️ Saldo insuficiente. Compra más AcaPoints'); return;
+    }
+  }
+
+  btn.textContent = 'Procesando...'; btn.disabled = true;
+
+  try {
+    // Simular delay de procesamiento
+    await new Promise(r => setTimeout(r, 1200));
+
+    const cardNum = selectedPayMethod === 'tarjeta'
+      ? (document.getElementById('card-number').value || '').replace(/\s/g,'').slice(-4) : null;
+    const cardName = selectedPayMethod === 'tarjeta'
+      ? (document.getElementById('card-name').value || '').trim() : null;
+
+    // Guardar pago en Supabase
+    const pagoPayload = {
+      servicio_id:      s.id,
+      comprador_id:     currentUser.id,
+      proveedor_id:     s.usuario_id,
+      metodo_pago:      selectedPayMethod,
+      monto:            precio,
+      acapoints_usados: selectedPayMethod === 'acapoints' ? precio : 0,
+      estado:           'completado',
+      tarjeta_ultimos4: cardNum,
+      tarjeta_titular:  cardName
+    };
+    // Guardar en localStorage (siempre disponible) + Supabase best-effort
+    const folio = 'ACA-' + Date.now().toString(36).toUpperCase();
+    const compraLocal = {
+      folio,
+      servicio_id:      s.id,
+      servicio_titulo:  s.titulo,
+      servicio_imagen:  s.imagen_url || '',
+      servicio_cat:     s.categoria,
+      servicio_ubicacion: s.ubicacion,
+      proveedor_nombre: (s.usuarios && s.usuarios.nombre) || s.proveedor_nombre || 'Proveedor',
+      metodo_pago:      selectedPayMethod,
+      monto:            precio,
+      precio_tipo:      s.precio_tipo,
+      acapoints_usados: selectedPayMethod === 'acapoints' ? precio : 0,
+      tarjeta_ultimos4: cardNum,
+      tarjeta_titular:  cardName,
+      estado:           'completado',
+      creado_en:        new Date().toISOString()
+    };
+    comprasAdd(compraLocal);
+    // Registrar en billetera: gasto reflejado
+    billeteraAdd({
+      tipo: selectedPayMethod === 'acapoints' ? 'gasto_acapoints' : 'gasto_tarjeta',
+      monto: precio,
+      metodo: selectedPayMethod,
+      descripcion: 'Pago: ' + s.titulo,
+      folio,
+      tarjeta_ultimos4: cardNum,
+      tarjeta_titular: cardName
+    });
+    // Acumular saldo retirable según método
+    if (selectedPayMethod === 'tarjeta') {
+      walletTarjetaSet(walletTarjetaGet() + precio);
+    }
+    supaFetch('/rest/v1/pagos', { method: 'POST', body: JSON.stringify({...pagoPayload, folio}) }).catch(()=>{});
+
+    // Si pagó con AcaPoints → descontar de la wallet
+    if (selectedPayMethod === 'acapoints') {
+      const nuevoSaldo = userAcaPoints - precio;
+      await upsertWallet(nuevoSaldo);
+      txAdd({ tipo:'gasto', puntos: precio, descripcion: 'Pago por: ' + s.titulo });
+      supaFetch('/rest/v1/transacciones_acapoints', { method:'POST', body: JSON.stringify({
+        usuario_id: currentUser.id, tipo:'gasto', puntos: precio, descripcion: 'Pago por: ' + s.titulo
+      })}).catch(()=>{});
+      userAcaPoints = nuevoSaldo;
+    }
+
+    closePayModal();
+
+    // Enviar notificación al usuario
+    const notifTipo = 'pago_' + selectedPayMethod;
+    const notifTitulos = { efectivo:'💵 Pago registrado', tarjeta:'💳 Pago con tarjeta', acapoints:'🪙 Pago con AcaPoints' };
+    const notifMensajes = {
+      efectivo: 'Reserva confirmada para "' + s.titulo + '". Coordina el pago en efectivo con el proveedor.',
+      tarjeta:  'Pago simulado aprobado para "' + s.titulo + '". Transacción #' + Math.floor(Math.random()*900000+100000) + '.',
+      acapoints:'Usaste ' + precio + ' AcaPoints en "' + s.titulo + '". Saldo restante: ' + userAcaPoints.toFixed(0) + ' AcaPoints.'
+    };
+    await crearNotifPago(notifTitulos[selectedPayMethod], notifMensajes[selectedPayMethod], notifTipo);
+
+    // Mostrar éxito
+    const metLabel = { efectivo:'💵 Pago en efectivo registrado', tarjeta:'💳 Pago con tarjeta simulado', acapoints:'🪙 AcaPoints descontados' };
+    document.getElementById('pago-success-msg').innerHTML =
+      `<strong>${s.titulo}</strong> ha sido contratado exitosamente.<br><br>` +
+      metLabel[selectedPayMethod] + '.<br>' +
+      (selectedPayMethod === 'efectivo' ? 'Coordina el pago con el proveedor.' :
+       selectedPayMethod === 'acapoints' ? 'Saldo restante: ' + userAcaPoints.toFixed(0) + ' AcaPoints 🪙' :
+       'Transacción aprobada.') +
+      `<br><br><span style="font-size:13px;background:#f0f0f0;padding:6px 14px;border-radius:8px;font-family:monospace;font-weight:700;color:#007a7a;">Folio: ${folio}</span>` +
+      `<br><small style="color:#888;font-size:12px;margin-top:8px;display:block;">Guarda este folio para consultar tu compra en "Mis compras"</small>`;
+    const successOvl = document.getElementById('pago-success-overlay');
+    successOvl.style.display = 'flex';
+    successOvl.style.alignItems = 'center';
+    successOvl.style.justifyContent = 'center';
+
+  } catch(e) {
+    showToast('❌ Error al procesar el pago. Intenta de nuevo.');
+    console.error('pago error:', e);
+  } finally {
+    btn.textContent = 'Confirmar Pago'; btn.disabled = false;
+  }
+}
+
+function closePagoSuccess() {
+  document.getElementById('pago-success-overlay').style.display = 'none';
+  currentDetail = null;
+  document.body.style.cssText = '';
+}
+
+// ── Comprar AcaPoints ───────────────────────────────────
+function openBuyPoints() {
+  const bpOverlay = document.getElementById('buypoints-modal-overlay');
+  bpOverlay.style.display = 'flex';
+  bpOverlay.style.alignItems = 'center';
+  bpOverlay.style.justifyContent = 'center';
+  selectedPackage = null;
+}
+
+function closeBuyPoints() {
+  document.getElementById('buypoints-modal-overlay').style.display = 'none';
+  document.getElementById('buypoints-card-form').style.display = 'none';
+  selectedPackage = null;
+}
+
+function selectPackage(el) {
+  document.querySelectorAll('.ap-package').forEach(p => p.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedPackage = { mxn: parseFloat(el.dataset.mxn), pts: parseFloat(el.dataset.pts) };
+  document.getElementById('buypoints-card-form').style.display = 'block';
+}
+
+async function confirmBuyPoints() {
+  if (!selectedPackage) { showToast('⚠️ Selecciona un paquete'); return; }
+  const num  = (document.getElementById('bp-card-number').value || '').replace(/\s/g,'');
+  const name = (document.getElementById('bp-card-name').value || '').trim();
+  const exp  = (document.getElementById('bp-card-exp').value || '').trim();
+  const cvv  = (document.getElementById('bp-card-cvv').value || '').trim();
+  if (num.length < 16) { showToast('⚠️ Número de tarjeta inválido'); return; }
+  if (!name)           { showToast('⚠️ Ingresa el nombre del titular'); return; }
+  if (exp.length < 5)  { showToast('⚠️ Fecha inválida'); return; }
+  if (cvv.length < 3)  { showToast('⚠️ CVV inválido'); return; }
+
+  try {
+    await new Promise(r => setTimeout(r, 1000));
+
+    // Actualizar wallet
+    const nuevoSaldo = userAcaPoints + selectedPackage.pts;
+    await upsertWallet(nuevoSaldo);
+    txAdd({ tipo:'compra', puntos: selectedPackage.pts, monto_mxn: selectedPackage.mxn,
+              descripcion: 'Compra de AcaPoints — $' + selectedPackage.mxn + ' MXN' });
+    supaFetch('/rest/v1/transacciones_acapoints', { method:'POST', body: JSON.stringify({
+      usuario_id: currentUser.id, tipo:'compra', puntos: selectedPackage.pts,
+      monto_mxn: selectedPackage.mxn, descripcion: 'Compra de AcaPoints — $' + selectedPackage.mxn + ' MXN'
+    })}).catch(()=>{});
+
+    document.getElementById('modal-balance').textContent = nuevoSaldo.toFixed(0) + ' AcaPoints';
+    await crearNotifPago(
+      '🪙 AcaPoints comprados',
+      'Compraste ' + selectedPackage.pts + ' AcaPoints por $' + selectedPackage.mxn + ' MXN. Saldo actual: ' + nuevoSaldo.toFixed(0) + ' AcaPoints.',
+      'compra_acapoints'
+    );
+    closeBuyPoints();
+    showToast('✅ ¡' + selectedPackage.pts + ' AcaPoints añadidos a tu cuenta!');
+  } catch(e) {
+    showToast('❌ Error al procesar. Intenta de nuevo.'); console.error(e);
+  }
+}
+
+// ── Helpers de formateo de tarjeta ─────────────────────
+function formatCardNumber(input) {
+  let v = input.value.replace(/\D/g,'').substring(0,16);
+  input.value = v.replace(/(.{4})/g,'$1 ').trim();
+}
+function formatExpiry(input) {
+  let v = input.value.replace(/\D/g,'');
+  if (v.length >= 2) v = v.substring(0,2) + '/' + v.substring(2,4);
+  input.value = v;
+}
+
+// ── Patch: inyectar métodos de pago al abrir detalle ───
+const _origOpenDetail = openDetail;
+openDetail = function(s) {
+  _origOpenDetail(s);
+  renderPayMethods(s.metodos_pago);
+};
+// Cargar wallet al iniciar sesión
+document.addEventListener('DOMContentLoaded', () => {
+  const origLogin = window.loginUser;
+  if (typeof loginUser === 'function') {
+    const _orig = loginUser;
+    window.loginUser = async function(...args) {
+      await _orig(...args);
+      loadWallet();
+    };
+  }
+  // Intentar cargar si ya hay sesión
+  setTimeout(() => { if (currentUser) loadWallet(); }, 800);
+});
+
+
+/* =====================================================
+   MIS COMPRAS - ACACONNECT
+   ===================================================== */
+
+// ── localStorage helpers para compras ──────────────────
+function comprasKey() { return 'aca_compras_' + (currentUser?.id || 'guest'); }
+
+function comprasAdd(compra) {
+  try {
+    const list = JSON.parse(localStorage.getItem(comprasKey()) || '[]');
+    list.unshift(compra);
+    localStorage.setItem(comprasKey(), JSON.stringify(list));
+  } catch(e) {}
+}
+
+function comprasGetAll() {
+  try { return JSON.parse(localStorage.getItem(comprasKey()) || '[]'); } catch(e) { return []; }
+}
+
+// ── Abrir modal Mis Compras ─────────────────────────────
+function openMisCompras() {
+  if (!currentUser) { openModal('login'); return; }
+  renderMisCompras();
+  const overlay = document.getElementById('miscompras-overlay');
+  overlay.style.display = 'flex';
+  overlay.style.alignItems = 'flex-start';
+  overlay.style.justifyContent = 'center';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeMisCompras() {
+  document.getElementById('miscompras-overlay').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function renderMisCompras(filtro) {
+  const container = document.getElementById('miscompras-list');
+  if (!container) return;
+  let compras = comprasGetAll();
+
+  // Filtro de búsqueda
+  if (filtro) {
+    const q = filtro.toLowerCase();
+    compras = compras.filter(c =>
+      c.folio.toLowerCase().includes(q) ||
+      c.servicio_titulo.toLowerCase().includes(q) ||
+      c.metodo_pago.toLowerCase().includes(q)
+    );
+  }
+
+  // Stats
+  const total = comprasGetAll().length;
+  const gastado = comprasGetAll().reduce((s, c) => s + Number(c.monto), 0);
+  document.getElementById('mc-stat-total').textContent = total;
+  document.getElementById('mc-stat-monto').textContent = '$' + gastado.toLocaleString('es-MX') + ' MXN';
+
+  if (compras.length === 0) {
+    container.innerHTML = `
+      <div style="text-align:center;padding:48px 20px;">
+        <div style="font-size:48px;margin-bottom:12px;">🛍️</div>
+        <h3 style="color:var(--text);margin:0 0 8px;">Aún no tienes compras</h3>
+        <p style="color:#888;font-size:14px;">Explora el marketplace y contrata tu primer servicio.</p>
+        <button onclick="closeMisCompras();showPage('marketplace')" 
+          style="margin-top:16px;background:var(--teal);color:#fff;border:none;padding:12px 28px;border-radius:100px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;">
+          Ir al Marketplace →
+        </button>
+      </div>`;
+    return;
+  }
+
+  const metIcono = { efectivo:'💵', tarjeta:'💳', acapoints:'🪙' };
+  const metLabel = { efectivo:'Efectivo', tarjeta:'Tarjeta', acapoints:'AcaPoints' };
+  const catColor = { gastronomia:'#e8f5e9', hospedaje:'#e3f2fd', servicios:'#fff3e0', experiencias:'#f3e5f5' };
+  const catIcon  = { gastronomia:'🍴', hospedaje:'🏨', servicios:'💼', experiencias:'⛵' };
+
+  container.innerHTML = compras.map(c => {
+    const fecha = new Date(c.creado_en).toLocaleDateString('es-MX', {
+      day:'2-digit', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'
+    });
+    const precioFmt = '$' + Number(c.monto).toLocaleString('es-MX');
+    const cardInfo = c.metodo_pago === 'tarjeta' && c.tarjeta_ultimos4
+      ? `<span style="font-size:11px;color:#888;"> •••• ${c.tarjeta_ultimos4}</span>` : '';
+    const apInfo = c.metodo_pago === 'acapoints'
+      ? `<span style="font-size:11px;color:#888;"> ${c.acapoints_usados} pts</span>` : '';
+    const imgSrc = c.servicio_imagen || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=200&q=60';
+
+    return `
+    <div class="mc-card" onclick="openCompraDetalle('${c.folio}')">
+      <div class="mc-card-img-wrap">
+        <img src="${imgSrc}" alt="${c.servicio_titulo}" onerror="this.src='https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=200&q=60'"/>
+        <span class="mc-cat-badge" style="background:${catColor[c.servicio_cat]||'#f0f0f0'}">
+          ${catIcon[c.servicio_cat]||'🔖'} ${catLabel(c.servicio_cat)}
+        </span>
+      </div>
+      <div class="mc-card-body">
+        <div class="mc-folio">Folio: <strong>${c.folio}</strong></div>
+        <h4 class="mc-titulo">${c.servicio_titulo}</h4>
+        <div class="mc-meta">
+          <span>📍 ${c.servicio_ubicacion || '—'}</span>
+          <span>👤 ${c.proveedor_nombre}</span>
+        </div>
+        <div class="mc-footer">
+          <div class="mc-precio">${precioFmt} <span style="font-size:12px;font-weight:400;color:#888">/ ${c.precio_tipo||''}</span></div>
+          <div class="mc-metodo">${metIcono[c.metodo_pago]||'💰'} ${metLabel[c.metodo_pago]||c.metodo_pago}${cardInfo}${apInfo}</div>
+        </div>
+        <div class="mc-fecha">${fecha}</div>
+      </div>
+      <div class="mc-arrow">›</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Abrir detalle de una compra ─────────────────────────
+function openCompraDetalle(folio) {
+  const compras = comprasGetAll();
+  const c = compras.find(x => x.folio === folio);
+  if (!c) return;
+
+  const metIcono = { efectivo:'💵', tarjeta:'💳', acapoints:'🪙' };
+  const metLabel = { efectivo:'Efectivo', tarjeta:'Tarjeta simulada', acapoints:'AcaPoints' };
+  const fecha = new Date(c.creado_en).toLocaleDateString('es-MX', {
+    weekday:'long', day:'2-digit', month:'long', year:'numeric'
+  });
+  const hora = new Date(c.creado_en).toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit' });
+  const imgSrc = c.servicio_imagen || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&q=70';
+
+  document.getElementById('compra-detalle-body').innerHTML = `
+    <div class="cd-hero">
+      <img src="${imgSrc}" alt="${c.servicio_titulo}" onerror="this.src='https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400'"/>
+      <div class="cd-estado-badge">✅ Completado</div>
+    </div>
+
+    <div class="cd-section">
+      <div class="cd-folio-box">
+        <span class="cd-folio-label">Folio de compra</span>
+        <span class="cd-folio-num">${c.folio}</span>
+        <button class="cd-copy-btn" onclick="copyFolio('${c.folio}')">📋 Copiar</button>
+      </div>
+    </div>
+
+    <div class="cd-section">
+      <div class="cd-section-title">📦 Servicio contratado</div>
+      <div class="cd-row"><span>Nombre</span><strong>${c.servicio_titulo}</strong></div>
+      <div class="cd-row"><span>Categoría</span><strong>${catLabel(c.servicio_cat)}</strong></div>
+      <div class="cd-row"><span>Ubicación</span><strong>${c.servicio_ubicacion || '—'}</strong></div>
+      <div class="cd-row"><span>Proveedor</span><strong>${c.proveedor_nombre}</strong></div>
+    </div>
+
+    <div class="cd-section">
+      <div class="cd-section-title">💰 Detalle del pago</div>
+      <div class="cd-row"><span>Monto</span><strong style="color:#007a7a;font-size:18px;">$${Number(c.monto).toLocaleString('es-MX')} MXN</strong></div>
+      <div class="cd-row"><span>Tipo de precio</span><strong>${c.precio_tipo || '—'}</strong></div>
+      <div class="cd-row"><span>Método</span><strong>${metIcono[c.metodo_pago]} ${metLabel[c.metodo_pago]||c.metodo_pago}</strong></div>
+      ${c.metodo_pago === 'tarjeta' && c.tarjeta_ultimos4 ? `<div class="cd-row"><span>Tarjeta</span><strong>•••• •••• •••• ${c.tarjeta_ultimos4}</strong></div>` : ''}
+      ${c.metodo_pago === 'tarjeta' && c.tarjeta_titular ? `<div class="cd-row"><span>Titular</span><strong>${c.tarjeta_titular}</strong></div>` : ''}
+      ${c.metodo_pago === 'acapoints' ? `<div class="cd-row"><span>AcaPoints usados</span><strong>🪙 ${c.acapoints_usados}</strong></div>` : ''}
+    </div>
+
+    <div class="cd-section">
+      <div class="cd-section-title">📅 Fecha y hora</div>
+      <div class="cd-row"><span>Fecha</span><strong>${fecha}</strong></div>
+      <div class="cd-row"><span>Hora</span><strong>${hora}</strong></div>
+    </div>
+
+    <div class="cd-actions">
+      <button onclick="closeMisCompras();showPage('marketplace')" class="cd-btn-secondary">
+        🛍️ Ver más servicios
+      </button>
+    </div>
+  `;
+
+  document.getElementById('miscompras-overlay').style.display = 'none';
+  const det = document.getElementById('compra-detalle-overlay');
+  det.style.display = 'flex';
+  det.style.alignItems = 'flex-start';
+  det.style.justifyContent = 'center';
+}
+
+function closeCompraDetalle() {
+  document.getElementById('compra-detalle-overlay').style.display = 'none';
+  openMisCompras();
+}
+
+function copyFolio(folio) {
+  navigator.clipboard?.writeText(folio).then(() => showToast('✅ Folio copiado')).catch(() => showToast('Folio: ' + folio));
+}
+
+
+/* =====================================================
+   BILLETERA VIRTUAL — ACACONNECT
+   ===================================================== */
+
+// ── localStorage helpers billetera ──────────────────────
+function billeteraKey()  { return 'aca_billetera_' + (currentUser?.id || 'guest'); }
+function retirosKey()    { return 'aca_retiros_'   + (currentUser?.id || 'guest'); }
+
+function billeteraAdd(mov) {
+  try {
+    const list = JSON.parse(localStorage.getItem(billeteraKey()) || '[]');
+    list.unshift({ ...mov, id: 'MOV-' + Date.now().toString(36).toUpperCase(), fecha: new Date().toISOString() });
+    localStorage.setItem(billeteraKey(), JSON.stringify(list.slice(0, 100)));
+  } catch(e) {}
+}
+function billeteraGetAll() {
+  try { return JSON.parse(localStorage.getItem(billeteraKey()) || '[]'); } catch(e) { return []; }
+}
+function retirosAdd(r) {
+  try {
+    const list = JSON.parse(localStorage.getItem(retirosKey()) || '[]');
+    list.unshift(r);
+    localStorage.setItem(retirosKey(), JSON.stringify(list));
+  } catch(e) {}
+}
+function retirosGetAll() {
+  try { return JSON.parse(localStorage.getItem(retirosKey()) || '[]'); } catch(e) { return []; }
+}
+
+// ── Calcular resumen de billetera ───────────────────────
+function billeteraResumen() {
+  const movs = billeteraGetAll();
+  let gastoTarjeta   = 0;
+  let gastoAcapoints = 0;
+  let recargado      = 0;
+  let retiradoAca    = 0;
+  let retiradoTarjeta= 0;
+
+  movs.forEach(m => {
+    if (m.tipo === 'gasto_tarjeta')     gastoTarjeta    += Number(m.monto) || 0;
+    if (m.tipo === 'gasto_acapoints')   gastoAcapoints  += Number(m.monto) || 0;
+    if (m.tipo === 'recarga_acapoints') recargado       += Number(m.monto) || 0;
+    if (m.tipo === 'retiro_aca')        retiradoAca     += Number(m.puntos) || 0;
+    if (m.tipo === 'retiro_tarjeta')    retiradoTarjeta += Number(m.monto)  || 0;
+  });
+
+  const retiros = retirosGetAll();
+  const pendienteRetiro = retiros
+    .filter(r => r.estado === 'pendiente')
+    .reduce((s,r) => s + Number(r.monto_mxn || r.monto), 0);
+
+  // Saldos actuales disponibles para retirar
+  const saldoAca     = userAcaPoints;
+  const saldoTarjeta = walletTarjetaGet();
+
+  // Equivalente MXN al retirar (con tasas)
+  const retirableAcaMxn     = Math.floor(saldoAca     * TASA_RETIRO_ACA * 100) / 100;
+  const retirableTarjetaMxn = Math.floor(saldoTarjeta * TASA_RETIRO_TAR * 100) / 100;
+
+  return {
+    gastoTarjeta, gastoAcapoints, recargado,
+    retiradoAca, retiradoTarjeta, pendienteRetiro,
+    saldoAca, saldoTarjeta,
+    retirableAcaMxn, retirableTarjetaMxn,
+    totalRetirableMxn: retirableAcaMxn + retirableTarjetaMxn,
+    totalGastado: gastoTarjeta + gastoAcapoints
+  };
+}
+
+// ── Abrir billetera ─────────────────────────────────────
+function openBilletera(tab) {
+  if (!currentUser) { openModal('login'); return; }
+  // Set user info in header
+  const userEl = document.getElementById('bl-header-user');
+  if (userEl) userEl.textContent = currentUser.nombre + ' · ' + currentUser.email;
+  renderBilletera(tab || 'resumen');
+  const ovl = document.getElementById('billetera-overlay');
+  ovl.style.display = 'flex';
+  ovl.style.alignItems = 'flex-start';
+  ovl.style.justifyContent = 'center';
+  document.body.style.overflow = 'hidden';
+}
+function closeBilletera() {
+  document.getElementById('billetera-overlay').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function switchBilleteraTab(tab) {
+  document.querySelectorAll('.bl-tab').forEach(t => t.classList.remove('active'));
+  document.querySelector(`.bl-tab[data-tab="${tab}"]`).classList.add('active');
+  renderBilleteraContent(tab);
+}
+
+function renderBilletera(tab) {
+  const res = billeteraResumen();
+  const saldo = userAcaPoints;
+
+  // Header
+  document.getElementById('bl-saldo-aca').textContent = Math.floor(saldo) + ' 🪙';
+  document.getElementById('bl-saldo-mxn').textContent = '$' + Math.floor(saldo).toLocaleString('es-MX') + ' MXN';
+  document.getElementById('bl-gasto-tarjeta').textContent = '$' + res.saldoTarjeta.toLocaleString('es-MX');
+  document.getElementById('bl-gasto-aca').textContent     = Math.floor(res.saldoAca) + ' 🪙';
+  document.getElementById('bl-recargado').textContent     = '$' + res.totalRetirableMxn.toLocaleString('es-MX');
+
+  // Tabs
+  document.querySelectorAll('.bl-tab').forEach(t => t.classList.remove('active'));
+  const activeTab = document.querySelector(`.bl-tab[data-tab="${tab}"]`);
+  if (activeTab) activeTab.classList.add('active');
+
+  renderBilleteraContent(tab);
+}
+
+function renderBilleteraContent(tab) {
+  const container = document.getElementById('bl-content');
+  if (tab === 'resumen')    container.innerHTML = renderBilleteraResumen();
+  if (tab === 'movimientos') container.innerHTML = renderBilleteraMovimientos();
+  if (tab === 'retirar')    container.innerHTML = renderBilleteraRetiro();
+}
+
+// ── Tab Resumen ──────────────────────────────────────────
+function renderBilleteraResumen() {
+  const movs = billeteraGetAll().slice(0, 3);
+  const res  = billeteraResumen();
+  const retiros = retirosGetAll();
+
+  const ultimosMov = movs.length === 0
+    ? `<p style="text-align:center;color:#aaa;padding:20px;font-size:13px;">Sin movimientos aún</p>`
+    : movs.map(m => movHTML(m)).join('');
+
+  const ultimosRetiros = retiros.slice(0, 2).map(r => `
+    <div class="bl-retiro-row">
+      <div class="bl-retiro-info">
+        <strong>${r.banco} ····${r.cuenta_ultimos4}</strong>
+        <span>${new Date(r.fecha).toLocaleDateString('es-MX',{day:'2-digit',month:'short'})}</span>
+      </div>
+      <div>
+        <span class="bl-retiro-monto">-$${Number(r.monto).toLocaleString('es-MX')}</span>
+        <span class="bl-badge bl-badge-${r.estado}">${r.estado === 'pendiente' ? '⏳ En proceso' : '✅ Completado'}</span>
+      </div>
+    </div>`).join('') || `<p style="text-align:center;color:#aaa;padding:12px;font-size:13px;">Sin retiros aún</p>`;
+
+  return `
+    <div class="bl-resumen-cards">
+      <div class="bl-mini-card tarjeta">
+        <span class="bl-mini-icon">💳</span>
+        <div class="bl-mini-label">Gastado con tarjeta</div>
+        <div class="bl-mini-val">$${res.gastoTarjeta.toLocaleString('es-MX')} MXN</div>
+      </div>
+      <div class="bl-mini-card acapoints">
+        <span class="bl-mini-icon">🪙</span>
+        <div class="bl-mini-label">Gastado en AcaPoints</div>
+        <div class="bl-mini-val">${res.gastoAcapoints.toFixed(0)} pts</div>
+      </div>
+    </div>
+
+    <div class="bl-section-title">Últimos movimientos</div>
+    ${ultimosMov}
+    ${movs.length > 0 ? `<button class="bl-ver-todos" onclick="switchBilleteraTab('movimientos')">Ver todos →</button>` : ''}
+
+    <div class="bl-section-title" style="margin-top:20px;">Últimos retiros</div>
+    ${ultimosRetiros}
+    <button class="bl-btn-retirar" onclick="switchBilleteraTab('retirar')">
+      🏦 Transferir a mi cuenta
+    </button>`;
+}
+
+// ── Tab Movimientos ──────────────────────────────────────
+function renderBilleteraMovimientos() {
+  const movs = billeteraGetAll();
+  if (movs.length === 0) return `<p style="text-align:center;color:#aaa;padding:40px 20px;font-size:14px;">Sin movimientos registrados.</p>`;
+
+  // Agrupar por mes
+  const grupos = {};
+  movs.forEach(m => {
+    const k = new Date(m.fecha).toLocaleDateString('es-MX', { month:'long', year:'numeric' });
+    if (!grupos[k]) grupos[k] = [];
+    grupos[k].push(m);
+  });
+
+  return Object.entries(grupos).map(([mes, items]) => `
+    <div class="bl-mes-label">${mes.charAt(0).toUpperCase() + mes.slice(1)}</div>
+    ${items.map(m => movHTML(m)).join('')}
+  `).join('');
+}
+
+function movHTML(m) {
+  const conf = {
+    gasto_tarjeta:    { icon:'💳', color:'#e53935', signo:'-', label:'Pago con tarjeta',   bg:'#fff5f5' },
+    gasto_acapoints:  { icon:'🪙', color:'#e65100', signo:'-', label:'Pago con AcaPoints', bg:'#fff8f0' },
+    recarga_acapoints:{ icon:'⬆️', color:'#2e7d32', signo:'+', label:'Recarga AcaPoints',  bg:'#f1f8e9' },
+    retiro:           { icon:'🏦', color:'#1565c0', signo:'-', label:'Transferencia',       bg:'#e8f0fe' },
+  };
+  const t = conf[m.tipo] || { icon:'💰', color:'#555', signo:'', label:m.tipo, bg:'#f5f5f5' };
+  const fecha = new Date(m.fecha).toLocaleDateString('es-MX', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+  const montoLabel = m.tipo === 'gasto_acapoints'
+    ? `${t.signo}${Number(m.monto).toFixed(0)} 🪙`
+    : m.tipo === 'recarga_acapoints'
+    ? `${t.signo}${m.puntos} 🪙 / $${Number(m.monto).toLocaleString('es-MX')}`
+    : `${t.signo}$${Number(m.monto).toLocaleString('es-MX')}`;
+  const sub = m.tarjeta_ultimos4 ? ` ···· ${m.tarjeta_ultimos4}` : m.folio ? ` · ${m.folio}` : '';
+
+  return `
+    <div class="bl-mov-row" style="background:${t.bg}">
+      <div class="bl-mov-icon">${t.icon}</div>
+      <div class="bl-mov-info">
+        <strong>${m.descripcion || t.label}</strong>
+        <span>${fecha}${sub}</span>
+      </div>
+      <div class="bl-mov-monto" style="color:${t.color}">${montoLabel}</div>
+    </div>`;
+}
+
+// ── Tab Retirar / Transferir ────────────────────────────
+function renderBilleteraRetiro() {
+  const res = billeteraResumen();
+  const retiros = retirosGetAll();
+
+  const historial = retiros.length === 0
+    ? `<p style="text-align:center;color:#aaa;font-size:13px;padding:10px 0;">Sin transferencias anteriores</p>`
+    : retiros.map(r => `
+      <div class="bl-retiro-row">
+        <div class="bl-retiro-info">
+          <strong>${r.banco} ····${r.cuenta_ultimos4}</strong>
+          <span>${new Date(r.fecha).toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'})}</span>
+        </div>
+        <div style="text-align:right;">
+          <div class="bl-retiro-monto">-$${Number(r.monto_mxn||r.monto).toLocaleString('es-MX')} MXN</div>
+          <span class="bl-badge bl-badge-${r.estado}">${r.estado==='pendiente'?'⏳ En proceso':'✅ Completado'}</span>
+        </div>
+      </div>`).join('');
+
+  return `
+    <!-- Tarjetas de saldo -->
+    <div class="bl-saldos-retiro-grid">
+      <div class="bl-saldo-retiro-card tarjeta">
+        <div class="bl-src-icon">💳</div>
+        <div class="bl-src-label">Saldo Tarjeta</div>
+        <div class="bl-src-monto">$${res.saldoTarjeta.toLocaleString('es-MX')} MXN</div>
+        <div class="bl-src-tasa">Tasa retiro: $1.00 MXN / peso</div>
+        <div class="bl-src-retirable">Retirable: <strong>$${res.retirableTarjetaMxn.toLocaleString('es-MX')} MXN</strong></div>
+      </div>
+      <div class="bl-saldo-retiro-card acapoints">
+        <div class="bl-src-icon">🪙</div>
+        <div class="bl-src-label">Saldo AcaPoints</div>
+        <div class="bl-src-monto">${Math.floor(res.saldoAca)} pts</div>
+        <div class="bl-src-tasa">Tasa retiro: $0.80 MXN / pt</div>
+        <div class="bl-src-retirable">Retirable: <strong>$${res.retirableAcaMxn.toLocaleString('es-MX')} MXN</strong></div>
+      </div>
+    </div>
+
+    <div class="bl-total-retirable">
+      Total disponible para transferir:
+      <strong>$${res.totalRetirableMxn.toLocaleString('es-MX')} MXN</strong>
+    </div>
+
+    <div class="bl-info-box" style="margin-top:12px;">
+      <span>ℹ️</span>
+      <div>
+        <strong>Tasas de retiro</strong>
+        <p>💳 Pagos con tarjeta: <strong>$1.00 MXN por cada peso</strong> (sin descuento).<br>
+           🪙 AcaPoints: <strong>$0.80 MXN por punto</strong> (mismo valor que al comprar servicios).<br>
+           Tiempo estimado: 1–3 días hábiles (simulado).</p>
+      </div>
+    </div>
+
+    <div class="bl-form-retiro" id="bl-form-retiro">
+      <div class="form-group" style="margin-top:16px;">
+        <label class="form-label">¿De dónde retirar?</label>
+        <div class="bl-fuente-selector">
+          <button class="bl-fuente-btn active" data-fuente="tarjeta" onclick="blSelectFuente(this,'tarjeta')">
+            💳 Tarjeta <span>$${res.retirableTarjetaMxn.toLocaleString('es-MX')}</span>
+          </button>
+          <button class="bl-fuente-btn" data-fuente="acapoints" onclick="blSelectFuente(this,'acapoints')">
+            🪙 AcaPoints <span>${Math.floor(res.saldoAca)} pts</span>
+          </button>
+          <button class="bl-fuente-btn" data-fuente="ambos" onclick="blSelectFuente(this,'ambos')">
+            🔀 Ambos
+          </button>
+        </div>
+      </div>
+
+      <div id="bl-inputs-tarjeta" class="form-group">
+        <label class="form-label">Monto de tarjeta a retirar ($MXN)</label>
+        <input class="form-input" id="bl-monto-tarjeta" type="number" min="0" max="${res.retirableTarjetaMxn}"
+          placeholder="Ej: 400" oninput="blUpdateResumen()"/>
+      </div>
+      <div id="bl-inputs-aca" class="form-group" style="display:none;">
+        <label class="form-label">AcaPoints a retirar</label>
+        <input class="form-input" id="bl-monto-aca" type="number" min="0" max="${Math.floor(res.saldoAca)}"
+          placeholder="Ej: 100" oninput="blUpdateResumen()"/>
+        <p style="font-size:11px;color:#888;margin-top:4px;">1 AcaPoint → $0.80 MXN al retirar</p>
+      </div>
+
+      <div class="bl-retiro-resumen" id="bl-retiro-resumen" style="display:none;">
+        <div class="bl-rr-row"><span>💳 Tarjeta</span><span id="bl-rr-tarjeta">$0</span></div>
+        <div class="bl-rr-row"><span>🪙 AcaPoints</span><span id="bl-rr-aca">0 pts → $0</span></div>
+        <div class="bl-rr-total"><span>Total a recibir</span><strong id="bl-rr-total">$0 MXN</strong></div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Banco destino</label>
+        <select class="form-select" id="bl-banco">
+          <option value="">Selecciona tu banco</option>
+          <option>BBVA</option><option>Banamex</option><option>Banorte</option>
+          <option>Santander</option><option>HSBC</option><option>Scotiabank</option>
+          <option>Inbursa</option><option>BanBajío</option><option>Otro</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">CLABE interbancaria (18 dígitos)</label>
+        <input class="form-input" id="bl-clabe" type="text" maxlength="18"
+          placeholder="000000000000000000" oninput="this.value=this.value.replace(/\D/g,'')"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nombre del titular</label>
+        <input class="form-input" id="bl-titular" type="text" placeholder="Como aparece en tu cuenta"/>
+      </div>
+      <button class="btn-publish" onclick="confirmarRetiro()" style="width:100%;margin-top:4px;">
+        🏦 Confirmar transferencia
+      </button>
+    </div>
+
+    <div class="bl-section-title" style="margin-top:24px;">Historial de transferencias</div>
+    ${historial}`;
+}
+
+function blSelectFuente(btn, fuente) {
+  document.querySelectorAll('.bl-fuente-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const tar = document.getElementById('bl-inputs-tarjeta');
+  const aca = document.getElementById('bl-inputs-aca');
+  if (fuente === 'tarjeta')   { tar.style.display='block'; aca.style.display='none'; }
+  if (fuente === 'acapoints') { tar.style.display='none';  aca.style.display='block'; }
+  if (fuente === 'ambos')     { tar.style.display='block'; aca.style.display='block'; }
+  blUpdateResumen();
+}
+
+function blUpdateResumen() {
+  const montoTar = parseFloat(document.getElementById('bl-monto-tarjeta')?.value) || 0;
+  const montoAca = parseFloat(document.getElementById('bl-monto-aca')?.value) || 0;
+  const mxnTar   = montoTar;
+  const mxnAca   = Math.floor(montoAca * TASA_RETIRO_ACA * 100) / 100;
+  const total    = mxnTar + mxnAca;
+
+  const res = document.getElementById('bl-retiro-resumen');
+  if (!res) return;
+  if (montoTar > 0 || montoAca > 0) {
+    res.style.display = 'block';
+    document.getElementById('bl-rr-tarjeta').textContent = '$' + mxnTar.toLocaleString('es-MX') + ' MXN';
+    document.getElementById('bl-rr-aca').textContent     = montoAca + ' pts → $' + mxnAca.toLocaleString('es-MX') + ' MXN';
+    document.getElementById('bl-rr-total').textContent   = '$' + total.toLocaleString('es-MX') + ' MXN';
+  } else {
+    res.style.display = 'none';
+  }
+}
+
+async function confirmarRetiro() {
+  const res       = billeteraResumen();
+  const montoTar  = parseFloat(document.getElementById('bl-monto-tarjeta')?.value) || 0;
+  const montoAca  = parseFloat(document.getElementById('bl-monto-aca')?.value)     || 0;
+  const banco     = document.getElementById('bl-banco').value;
+  const clabe     = document.getElementById('bl-clabe').value.trim();
+  const titular   = document.getElementById('bl-titular').value.trim();
+
+  const mxnAca    = Math.floor(montoAca * TASA_RETIRO_ACA * 100) / 100;
+  const totalMxn  = montoTar + mxnAca;
+
+  if (montoTar <= 0 && montoAca <= 0) { showToast('⚠️ Ingresa al menos un monto'); return; }
+  if (montoTar > res.retirableTarjetaMxn) { showToast('⚠️ Saldo de tarjeta insuficiente'); return; }
+  if (montoAca > res.saldoAca)            { showToast('⚠️ Saldo de AcaPoints insuficiente'); return; }
+  if (!banco)                             { showToast('⚠️ Selecciona tu banco'); return; }
+  if (clabe.length !== 18)                { showToast('⚠️ La CLABE debe tener 18 dígitos'); return; }
+  if (!titular)                           { showToast('⚠️ Ingresa el titular de la cuenta'); return; }
+
+  const btn = document.querySelector('#bl-form-retiro .btn-publish');
+  btn.textContent = 'Procesando...'; btn.disabled = true;
+  await new Promise(r => setTimeout(r, 1300));
+
+  const folio           = 'RET-' + Date.now().toString(36).toUpperCase();
+  const cuenta_ultimos4 = clabe.slice(-4);
+
+  // Descontar saldo tarjeta
+  if (montoTar > 0) {
+    walletTarjetaSet(walletTarjetaGet() - montoTar);
+    billeteraAdd({ tipo:'retiro_tarjeta', monto:montoTar,
+      descripcion:`Retiro tarjeta → ${banco}`, folio, banco, cuenta_ultimos4 });
+  }
+  // Descontar AcaPoints
+  if (montoAca > 0) {
+    await upsertWallet(userAcaPoints - montoAca);
+    billeteraAdd({ tipo:'retiro_aca', puntos:montoAca, monto:mxnAca,
+      descripcion:`Retiro AcaPoints → ${banco}`, folio, banco, cuenta_ultimos4 });
+    txAdd({ tipo:'reembolso', puntos:montoAca, descripcion:`Retiro a ${banco} ····${cuenta_ultimos4}` });
+  }
+
+  // Guardar retiro
+  retirosAdd({
+    folio, banco, cuenta_ultimos4, titular,
+    monto_tarjeta: montoTar,
+    puntos_aca: montoAca,
+    mxn_aca: mxnAca,
+    monto_mxn: totalMxn,
+    clabe_enmascarada: clabe.slice(0,6) + '·'.repeat(8) + clabe.slice(-4),
+    estado: 'pendiente',
+    fecha: new Date().toISOString()
+  });
+
+  btn.textContent = 'Confirmar transferencia'; btn.disabled = false;
+
+  // Pantalla de éxito
+  document.getElementById('bl-content').innerHTML = `
+    <div style="text-align:center;padding:32px 20px;">
+      <div style="font-size:56px;margin-bottom:12px;">🎉</div>
+      <h3 style="margin:0 0 8px;color:#1a1a1a;">¡Transferencia solicitada!</h3>
+      <p style="color:#666;font-size:14px;margin-bottom:20px;">
+        Tu retiro está en proceso y llegará a tu cuenta en 1–3 días hábiles.
+      </p>
+      <div style="background:#f0faf8;border:1.5px solid #b2dfdb;border-radius:14px;padding:16px 18px;margin-bottom:16px;text-align:left;">
+        <div style="font-size:11px;color:#666;margin-bottom:6px;">Folio de retiro</div>
+        <div style="font-family:monospace;font-size:15px;font-weight:800;color:#007a7a;">${folio}</div>
+        <div style="height:1px;background:#e0e0e0;margin:10px 0;"></div>
+        ${montoTar > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span style="color:#888;">💳 De tarjeta</span><strong>$${montoTar.toLocaleString('es-MX')} MXN</strong></div>` : ''}
+        ${montoAca > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span style="color:#888;">🪙 De AcaPoints (${montoAca} pts)</span><strong>$${mxnAca.toLocaleString('es-MX')} MXN</strong></div>` : ''}
+        <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:700;border-top:1px solid #e0e0e0;padding-top:8px;margin-top:4px;"><span>Total a recibir</span><span style="color:#007a7a;">$${totalMxn.toLocaleString('es-MX')} MXN</span></div>
+        <div style="font-size:11px;color:#aaa;margin-top:8px;">${banco} · ····${cuenta_ultimos4}</div>
+      </div>
+      <button onclick="openBilletera('resumen')"
+        style="background:var(--teal);color:#fff;border:none;border-radius:12px;padding:13px 32px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;width:100%;">
+        Ver mi billetera
+      </button>
+    </div>`;
+}
+
+
+
+function closeMisCompras() {
+  document.getElementById('miscompras-overlay').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function renderMisCompras(filtro) {
+  const container = document.getElementById('miscompras-list');
+  if (!container) return;
+  let compras = comprasGetAll();
+
+  // Filtro de búsqueda
+  if (filtro) {
+    const q = filtro.toLowerCase();
+    compras = compras.filter(c =>
+      c.folio.toLowerCase().includes(q) ||
+      c.servicio_titulo.toLowerCase().includes(q) ||
+      c.metodo_pago.toLowerCase().includes(q)
+    );
+  }
+
+  // Stats
+  const total = comprasGetAll().length;
+  const gastado = comprasGetAll().reduce((s, c) => s + Number(c.monto), 0);
+  document.getElementById('mc-stat-total').textContent = total;
+  document.getElementById('mc-stat-monto').textContent = '$' + gastado.toLocaleString('es-MX') + ' MXN';
+
+  if (compras.length === 0) {
+    container.innerHTML = `
+      <div style="text-align:center;padding:48px 20px;">
+        <div style="font-size:48px;margin-bottom:12px;">🛍️</div>
+        <h3 style="color:var(--text);margin:0 0 8px;">Aún no tienes compras</h3>
+        <p style="color:#888;font-size:14px;">Explora el marketplace y contrata tu primer servicio.</p>
+        <button onclick="closeMisCompras();showPage('marketplace')" 
+          style="margin-top:16px;background:var(--teal);color:#fff;border:none;padding:12px 28px;border-radius:100px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;">
+          Ir al Marketplace →
+        </button>
+      </div>`;
+    return;
+  }
+
+  const metIcono = { efectivo:'💵', tarjeta:'💳', acapoints:'🪙' };
+  const metLabel = { efectivo:'Efectivo', tarjeta:'Tarjeta', acapoints:'AcaPoints' };
+  const catColor = { gastronomia:'#e8f5e9', hospedaje:'#e3f2fd', servicios:'#fff3e0', experiencias:'#f3e5f5' };
+  const catIcon  = { gastronomia:'🍴', hospedaje:'🏨', servicios:'💼', experiencias:'⛵' };
+
+  container.innerHTML = compras.map(c => {
+    const fecha = new Date(c.creado_en).toLocaleDateString('es-MX', {
+      day:'2-digit', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'
+    });
+    const precioFmt = '$' + Number(c.monto).toLocaleString('es-MX');
+    const cardInfo = c.metodo_pago === 'tarjeta' && c.tarjeta_ultimos4
+      ? `<span style="font-size:11px;color:#888;"> •••• ${c.tarjeta_ultimos4}</span>` : '';
+    const apInfo = c.metodo_pago === 'acapoints'
+      ? `<span style="font-size:11px;color:#888;"> ${c.acapoints_usados} pts</span>` : '';
+    const imgSrc = c.servicio_imagen || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=200&q=60';
+
+    return `
+    <div class="mc-card" onclick="openCompraDetalle('${c.folio}')">
+      <div class="mc-card-img-wrap">
+        <img src="${imgSrc}" alt="${c.servicio_titulo}" onerror="this.src='https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=200&q=60'"/>
+        <span class="mc-cat-badge" style="background:${catColor[c.servicio_cat]||'#f0f0f0'}">
+          ${catIcon[c.servicio_cat]||'🔖'} ${catLabel(c.servicio_cat)}
+        </span>
+      </div>
+      <div class="mc-card-body">
+        <div class="mc-folio">Folio: <strong>${c.folio}</strong></div>
+        <h4 class="mc-titulo">${c.servicio_titulo}</h4>
+        <div class="mc-meta">
+          <span>📍 ${c.servicio_ubicacion || '—'}</span>
+          <span>👤 ${c.proveedor_nombre}</span>
+        </div>
+        <div class="mc-footer">
+          <div class="mc-precio">${precioFmt} <span style="font-size:12px;font-weight:400;color:#888">/ ${c.precio_tipo||''}</span></div>
+          <div class="mc-metodo">${metIcono[c.metodo_pago]||'💰'} ${metLabel[c.metodo_pago]||c.metodo_pago}${cardInfo}${apInfo}</div>
+        </div>
+        <div class="mc-fecha">${fecha}</div>
+      </div>
+      <div class="mc-arrow">›</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Abrir detalle de una compra ─────────────────────────
+function openCompraDetalle(folio) {
+  const compras = comprasGetAll();
+  const c = compras.find(x => x.folio === folio);
+  if (!c) return;
+
+  const metIcono = { efectivo:'💵', tarjeta:'💳', acapoints:'🪙' };
+  const metLabel = { efectivo:'Efectivo', tarjeta:'Tarjeta simulada', acapoints:'AcaPoints' };
+  const fecha = new Date(c.creado_en).toLocaleDateString('es-MX', {
+    weekday:'long', day:'2-digit', month:'long', year:'numeric'
+  });
+  const hora = new Date(c.creado_en).toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit' });
+  const imgSrc = c.servicio_imagen || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&q=70';
+
+  document.getElementById('compra-detalle-body').innerHTML = `
+    <div class="cd-hero">
+      <img src="${imgSrc}" alt="${c.servicio_titulo}" onerror="this.src='https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400'"/>
+      <div class="cd-estado-badge">✅ Completado</div>
+    </div>
+
+    <div class="cd-section">
+      <div class="cd-folio-box">
+        <span class="cd-folio-label">Folio de compra</span>
+        <span class="cd-folio-num">${c.folio}</span>
+        <button class="cd-copy-btn" onclick="copyFolio('${c.folio}')">📋 Copiar</button>
+      </div>
+    </div>
+
+    <div class="cd-section">
+      <div class="cd-section-title">📦 Servicio contratado</div>
+      <div class="cd-row"><span>Nombre</span><strong>${c.servicio_titulo}</strong></div>
+      <div class="cd-row"><span>Categoría</span><strong>${catLabel(c.servicio_cat)}</strong></div>
+      <div class="cd-row"><span>Ubicación</span><strong>${c.servicio_ubicacion || '—'}</strong></div>
+      <div class="cd-row"><span>Proveedor</span><strong>${c.proveedor_nombre}</strong></div>
+    </div>
+
+    <div class="cd-section">
+      <div class="cd-section-title">💰 Detalle del pago</div>
+      <div class="cd-row"><span>Monto</span><strong style="color:#007a7a;font-size:18px;">$${Number(c.monto).toLocaleString('es-MX')} MXN</strong></div>
+      <div class="cd-row"><span>Tipo de precio</span><strong>${c.precio_tipo || '—'}</strong></div>
+      <div class="cd-row"><span>Método</span><strong>${metIcono[c.metodo_pago]} ${metLabel[c.metodo_pago]||c.metodo_pago}</strong></div>
+      ${c.metodo_pago === 'tarjeta' && c.tarjeta_ultimos4 ? `<div class="cd-row"><span>Tarjeta</span><strong>•••• •••• •••• ${c.tarjeta_ultimos4}</strong></div>` : ''}
+      ${c.metodo_pago === 'tarjeta' && c.tarjeta_titular ? `<div class="cd-row"><span>Titular</span><strong>${c.tarjeta_titular}</strong></div>` : ''}
+      ${c.metodo_pago === 'acapoints' ? `<div class="cd-row"><span>AcaPoints usados</span><strong>🪙 ${c.acapoints_usados}</strong></div>` : ''}
+    </div>
+
+    <div class="cd-section">
+      <div class="cd-section-title">📅 Fecha y hora</div>
+      <div class="cd-row"><span>Fecha</span><strong>${fecha}</strong></div>
+      <div class="cd-row"><span>Hora</span><strong>${hora}</strong></div>
+    </div>
+
+    <div class="cd-actions">
+      <button onclick="closeMisCompras();showPage('marketplace')" class="cd-btn-secondary">
+        🛍️ Ver más servicios
+      </button>
+    </div>
+  `;
+
+  document.getElementById('miscompras-overlay').style.display = 'none';
+  const det = document.getElementById('compra-detalle-overlay');
+  det.style.display = 'flex';
+  det.style.alignItems = 'flex-start';
+  det.style.justifyContent = 'center';
+}
+
+function closeCompraDetalle() {
+  document.getElementById('compra-detalle-overlay').style.display = 'none';
+  openMisCompras();
+}
+
+function copyFolio(folio) {
+  navigator.clipboard?.writeText(folio).then(() => showToast('✅ Folio copiado')).catch(() => showToast('Folio: ' + folio));
+}
+
+
+/* =====================================================
+   BILLETERA VIRTUAL — ACACONNECT
+   ===================================================== */
+
+// ── localStorage helpers billetera ──────────────────────
+function billeteraKey()  { return 'aca_billetera_' + (currentUser?.id || 'guest'); }
+function retirosKey()    { return 'aca_retiros_'   + (currentUser?.id || 'guest'); }
+
+function billeteraAdd(mov) {
+  try {
+    const list = JSON.parse(localStorage.getItem(billeteraKey()) || '[]');
+    list.unshift({ ...mov, id: 'MOV-' + Date.now().toString(36).toUpperCase(), fecha: new Date().toISOString() });
+    localStorage.setItem(billeteraKey(), JSON.stringify(list.slice(0, 100)));
+  } catch(e) {}
+}
+function billeteraGetAll() {
+  try { return JSON.parse(localStorage.getItem(billeteraKey()) || '[]'); } catch(e) { return []; }
+}
+function retirosAdd(r) {
+  try {
+    const list = JSON.parse(localStorage.getItem(retirosKey()) || '[]');
+    list.unshift(r);
+    localStorage.setItem(retirosKey(), JSON.stringify(list));
+  } catch(e) {}
+}
+function retirosGetAll() {
+  try { return JSON.parse(localStorage.getItem(retirosKey()) || '[]'); } catch(e) { return []; }
+}
+
+// ── Calcular resumen de billetera ───────────────────────
+

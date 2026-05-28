@@ -991,3 +991,1274 @@
     .mispub-modal{width:100%;}
     .msg-card{padding:16px;}
   }
+
+/* =====================================================
+   SISTEMA DE PAGOS - ACACONNECT
+   ===================================================== */
+
+/* -- Métodos de pago en formulario de publicación -- */
+.payment-methods-grid {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pay-method-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-mid);
+  transition: all .2s;
+  position: relative;
+}
+.pay-method-btn .pay-check {
+  display: none;
+  color: white;
+  font-size: 11px;
+  background: var(--teal);
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  line-height: 18px;
+  text-align: center;
+}
+.pay-method-btn.active {
+  border-color: var(--teal);
+  background: rgba(0,128,128,.07);
+  color: var(--teal);
+}
+.pay-method-btn.active .pay-check { display: flex; align-items: center; justify-content: center; }
+
+/* -- Botón contratar en detalle -- */
+.btn-pay-service {
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, var(--teal) 0%, #005f5f 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 10px;
+  transition: opacity .2s, transform .15s;
+}
+.btn-pay-service:hover { opacity: .9; transform: translateY(-1px); }
+
+/* -- Badges de métodos en detalle -- */
+.pay-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  color: var(--text-mid);
+}
+
+/* -- Modal de pago -- */
+.pay-modal {
+  background: var(--surface);
+  border-radius: 20px;
+  padding: 28px 24px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+  box-shadow: 0 20px 60px rgba(0,0,0,.18);
+}
+.pay-service-info {
+  background: var(--bg);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+}
+.pay-service-info img {
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.pay-service-info .psi-title { font-weight: 600; font-size: 14px; color: var(--text); }
+.pay-service-info .psi-price { font-size: 18px; font-weight: 700; color: var(--teal); margin-top: 2px; }
+
+/* -- Selector de método en modal -- */
+.pay-method-selector {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.pay-method-opt {
+  flex: 1;
+  padding: 12px 8px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  cursor: pointer;
+  text-align: center;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-mid);
+  transition: all .2s;
+}
+.pay-method-opt .pmo-icon { font-size: 22px; display: block; margin-bottom: 4px; }
+.pay-method-opt.active {
+  border-color: var(--teal);
+  background: rgba(0,128,128,.08);
+  color: var(--teal);
+}
+.pay-method-opt:disabled, .pay-method-opt[disabled] {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+/* -- Paneles de pago -- */
+.pay-panel { margin-top: 16px; }
+.pay-info-box {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: #F0FAF0;
+  border: 1.5px solid #B2DFDB;
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-size: 13px;
+  color: var(--text-mid);
+}
+.pay-info-box span { font-size: 22px; flex-shrink: 0; }
+.pay-info-box strong { display: block; color: var(--text); margin-bottom: 2px; }
+
+/* -- AcaPoints balance box -- */
+.acapoints-balance-box {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: linear-gradient(135deg, #1a3a3a 0%, #005f5f 100%);
+  border-radius: 14px;
+  padding: 16px 18px;
+  color: white;
+}
+.acapoints-logo { font-size: 30px; }
+.acapoints-balance-label { font-size: 12px; opacity: .8; }
+.acapoints-balance-num { font-size: 22px; font-weight: 700; }
+.btn-buy-points {
+  margin-left: auto;
+  padding: 8px 16px;
+  background: rgba(255,255,255,.2);
+  border: 1.5px solid rgba(255,255,255,.4);
+  border-radius: 20px;
+  color: white;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .2s;
+  white-space: nowrap;
+}
+.btn-buy-points:hover { background: rgba(255,255,255,.3); }
+
+/* -- Resumen de pago -- */
+.pay-summary {
+  background: var(--bg);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-top: 16px;
+}
+.pay-summary-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  color: var(--text-mid);
+  padding: 4px 0;
+}
+.pay-summary-row.pay-total {
+  border-top: 1.5px solid var(--border);
+  margin-top: 8px;
+  padding-top: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--teal);
+}
+
+/* -- Paquetes AcaPoints -- */
+.acapoints-packages {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.ap-package {
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 12px;
+  text-align: center;
+  cursor: pointer;
+  transition: all .2s;
+  background: var(--surface);
+}
+.ap-package:hover, .ap-package.selected {
+  border-color: var(--teal);
+  background: rgba(0,128,128,.07);
+}
+.ap-pkg-pts { font-size: 20px; font-weight: 700; color: var(--teal); }
+.ap-pkg-price { font-size: 14px; color: var(--text-mid); margin-top: 4px; font-weight: 500; }
+.ap-pkg-bonus { font-size: 11px; color: #666; margin-top: 4px; }
+.popular-badge { color: #E67E22; font-weight: 700; font-size: 12px; }
+
+
+/* =====================================================
+   PÁGINA ACAPOINTS
+   ===================================================== */
+
+.acap-page-wrapper {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 40px 20px 60px;
+}
+
+/* Hero */
+.acap-hero {
+  text-align: center;
+  padding: 40px 20px 32px;
+  background: linear-gradient(135deg, #0d2b2b 0%, #005f5f 100%);
+  border-radius: 24px;
+  color: white;
+  margin-bottom: 24px;
+}
+.acap-hero-coin { font-size: 56px; margin-bottom: 8px; }
+.acap-hero h2 { font-size: 32px; font-weight: 900; margin: 0 0 8px; }
+.acap-hero > p { font-size: 15px; opacity: .85; margin: 0 0 24px; }
+.acap-hero-balance {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(255,255,255,.12);
+  border-radius: 16px;
+  padding: 18px 32px;
+  gap: 4px;
+}
+.acap-bal-label { font-size: 12px; opacity: .75; text-transform: uppercase; letter-spacing: .06em; }
+.acap-bal-num { font-size: 36px; font-weight: 800; }
+.acap-bal-sub { font-size: 13px; opacity: .7; }
+
+/* Chips */
+.acap-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-bottom: 32px;
+}
+.acap-chip {
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--text-mid);
+  font-weight: 500;
+}
+
+/* Section */
+.acap-section { margin-bottom: 32px; }
+.acap-section-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 16px;
+}
+
+/* Paquetes */
+.acap-packages-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.acap-pkg {
+  border: 2px solid var(--border);
+  border-radius: 18px;
+  padding: 22px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: all .2s;
+  background: var(--surface);
+  position: relative;
+  overflow: hidden;
+}
+.acap-pkg:hover {
+  border-color: var(--teal);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,128,128,.15);
+}
+.acap-pkg.selected {
+  border-color: var(--teal);
+  background: rgba(0,128,128,.07);
+  box-shadow: 0 8px 24px rgba(0,128,128,.2);
+}
+.acap-pkg.popular {
+  border-color: var(--teal);
+}
+.acap-pkg-popular-badge {
+  position: absolute;
+  top: 0; right: 0;
+  background: var(--teal);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-bottom-left-radius: 10px;
+}
+.acap-pkg-coin { font-size: 28px; margin-bottom: 6px; }
+.acap-pkg-pts { font-size: 28px; font-weight: 800; color: var(--teal); line-height: 1; }
+.acap-pkg-ptslabel { font-size: 12px; color: var(--text-light); margin: 2px 0 8px; }
+.acap-pkg-price { font-size: 15px; font-weight: 600; color: var(--text); }
+.acap-pkg-bonus { font-size: 12px; color: #2e7d32; font-weight: 600; margin-top: 4px; }
+
+/* Formulario compra */
+.acap-selected-summary { margin-bottom: 4px; }
+.acap-buy-form { margin-top: 4px; }
+
+/* Historial */
+.acap-tx-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  margin-bottom: 8px;
+}
+.acap-tx-icon { font-size: 18px; flex-shrink: 0; }
+.acap-tx-desc { flex: 1; }
+.acap-tx-desc strong { display: block; font-size: 14px; color: var(--text); }
+.acap-tx-desc span { font-size: 12px; color: var(--text-light); }
+.acap-tx-pts { font-size: 15px; font-weight: 700; white-space: nowrap; }
+.acap-tx-pts.compra { color: #2e7d32; }
+.acap-tx-pts.gasto { color: #c62828; }
+.acap-tx-pts.reembolso { color: #1565c0; }
+
+/* CTA login */
+.acap-login-cta {
+  text-align: center;
+  padding: 40px 20px;
+  background: var(--surface);
+  border-radius: 20px;
+  border: 1.5px dashed var(--border);
+}
+.acap-login-cta h3 { font-size: 20px; margin: 0 0 8px; }
+.acap-login-cta p { color: var(--text-light); font-size: 14px; margin: 0; }
+
+/* Responsive */
+@media (max-width: 480px) {
+  .acap-packages-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .acap-pkg { padding: 16px 10px; }
+  .acap-pkg-pts { font-size: 22px; }
+  .acap-bal-num { font-size: 28px; }
+}
+
+
+/* ── Z-index fixes: modales de pago por encima de todo ── */
+#pay-modal-overlay,
+#buypoints-modal-overlay,
+#pago-success-overlay {
+  z-index: 400 !important;
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  backdrop-filter: blur(6px);
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+/* Rediseño del modal de pago */
+.pay-modal {
+  background: #ffffff !important;
+  border-radius: 24px;
+  padding: 28px 24px 24px;
+  width: 100%;
+  max-width: 460px;
+  max-height: 88vh;
+  overflow-y: auto;
+  position: relative;
+  box-shadow: 0 24px 64px rgba(0,0,0,.25);
+  animation: fadeUp .22s ease both;
+}
+.pay-modal h3 {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 16px;
+  color: var(--text);
+}
+
+/* Info del servicio en modal */
+.pay-service-info {
+  background: var(--bg);
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.pay-service-info img {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.pay-service-info .psi-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.3;
+}
+.pay-service-info .psi-price {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--teal);
+  margin-top: 3px;
+}
+
+/* Selector de método */
+.pay-method-selector {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.pay-method-opt {
+  flex: 1;
+  padding: 12px 6px 10px;
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  cursor: pointer;
+  text-align: center;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-mid);
+  transition: all .2s;
+  line-height: 1.2;
+}
+.pay-method-opt .pmo-icon {
+  font-size: 24px;
+  display: block;
+  margin-bottom: 5px;
+}
+.pay-method-opt.active {
+  border-color: var(--teal);
+  background: rgba(0,128,128,.08);
+  color: var(--teal);
+}
+
+/* Paneles */
+.pay-panel { margin-top: 14px; }
+
+/* Resumen */
+.pay-summary {
+  background: var(--bg);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-top: 14px;
+}
+.pay-summary-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  color: var(--text-mid);
+  padding: 3px 0;
+}
+.pay-summary-row.pay-total {
+  border-top: 1.5px solid var(--border);
+  margin-top: 8px;
+  padding-top: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--teal);
+}
+
+/* AcaPoints balance en modal */
+.acapoints-balance-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(135deg, #0d2b2b 0%, #005f5f 100%);
+  border-radius: 14px;
+  padding: 14px 16px;
+  color: white;
+}
+.acapoints-logo { font-size: 28px; }
+.acapoints-balance-label { font-size: 11px; opacity: .75; }
+.acapoints-balance-num { font-size: 20px; font-weight: 700; }
+.btn-buy-points {
+  margin-left: auto;
+  padding: 7px 14px;
+  background: rgba(255,255,255,.18);
+  border: 1.5px solid rgba(255,255,255,.35);
+  border-radius: 20px;
+  color: white;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .2s;
+}
+.btn-buy-points:hover { background: rgba(255,255,255,.28); }
+
+/* Botón confirmar pago */
+#btn-confirm-pay {
+  background: linear-gradient(135deg, var(--teal) 0%, #005f5f 100%);
+  border: none;
+  border-radius: 14px;
+  color: white;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  padding: 15px;
+  cursor: pointer;
+  transition: opacity .2s, transform .15s;
+}
+#btn-confirm-pay:hover { opacity: .92; transform: translateY(-1px); }
+#btn-confirm-pay:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+
+/* Paquetes en buypoints modal */
+.acapoints-packages {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.ap-package {
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: all .2s;
+  background: var(--surface);
+}
+.ap-package:hover, .ap-package.selected {
+  border-color: var(--teal);
+  background: rgba(0,128,128,.07);
+  transform: translateY(-1px);
+}
+.ap-pkg-pts { font-size: 18px; font-weight: 700; color: var(--teal); }
+.ap-pkg-price { font-size: 13px; color: var(--text-mid); margin-top: 3px; font-weight: 500; }
+.ap-pkg-bonus { font-size: 11px; color: #2e7d32; font-weight: 600; margin-top: 3px; }
+.popular-badge { color: #E67E22 !important; font-weight: 700 !important; }
+
+@media (max-width: 480px) {
+  .pay-modal { border-radius: 20px; padding: 22px 16px 20px; }
+  .pay-method-selector { gap: 6px; }
+  .pay-method-opt { font-size: 11px; padding: 10px 4px 8px; }
+}
+
+/* ── Modal de pago: fondo siempre blanco ── */
+#pay-modal-overlay .pay-modal,
+#buypoints-modal-overlay .pay-modal,
+#pago-success-overlay .pay-modal {
+  background: #ffffff !important;
+  color: #1a2e2e;
+}
+#pay-modal-overlay .pay-modal h3,
+#buypoints-modal-overlay .pay-modal h3,
+#pago-success-overlay .pay-modal h3 {
+  color: #1a2e2e !important;
+}
+#pay-modal-overlay .form-label,
+#buypoints-modal-overlay .form-label {
+  color: #2d4040 !important;
+}
+#pay-modal-overlay .form-input,
+#buypoints-modal-overlay .form-input {
+  background: #f7fafa !important;
+  border-color: #d0e0e0 !important;
+  color: #1a2e2e !important;
+}
+#pay-modal-overlay .pay-service-info,
+#pay-modal-overlay .pay-summary {
+  background: #f4f9f9 !important;
+}
+#pay-modal-overlay .pay-method-opt {
+  background: #ffffff !important;
+  color: #4a6060;
+}
+#pay-modal-overlay .pay-method-opt.active {
+  background: rgba(0,128,128,.08) !important;
+  color: var(--teal) !important;
+}
+#pay-modal-overlay .pay-info-box {
+  background: #f0faf5 !important;
+}
+
+/* ── Notificaciones de pago ── */
+.notif-icon.payment {
+  background: linear-gradient(135deg, #005f5f, var(--teal));
+  color: white;
+  font-size: 16px;
+}
+
+.pay-modal h3 {
+  color: #1a1a1a !important;
+}
+.pay-modal .form-label {
+  color: #2d2d2d !important;
+}
+.pay-modal .pay-summary {
+  background: #f5f5f5 !important;
+}
+.pay-modal .pay-summary-row {
+  color: #555 !important;
+}
+.pay-modal .pay-summary-row.pay-total {
+  color: #007a7a !important;
+}
+.pay-modal .pay-method-opt {
+  background: #ffffff !important;
+  color: #555 !important;
+}
+.pay-modal .pay-method-opt.active {
+  background: rgba(0,128,128,.08) !important;
+  color: #007a7a !important;
+}
+.pay-modal .pay-service-info {
+  background: #f8f8f8 !important;
+}
+.pay-modal .psi-title {
+  color: #1a1a1a !important;
+}
+
+/* =====================================================
+   MIS COMPRAS
+   ===================================================== */
+
+.mc-modal {
+  background: #ffffff;
+  border-radius: 24px;
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0,0,0,.2);
+}
+
+/* Header */
+.mc-modal-header {
+  background: linear-gradient(135deg, #0d2b2b 0%, #005f5f 100%);
+  padding: 28px 24px 20px;
+  color: white;
+  position: relative;
+}
+.mc-modal-header h3 { font-size: 22px; font-weight: 800; margin: 0 0 4px; }
+.mc-modal-header > p { font-size: 13px; opacity: .75; margin: 0 0 16px; }
+
+.mc-close-btn {
+  position: absolute;
+  top: 16px; right: 16px;
+  background: rgba(255,255,255,.15);
+  border: none;
+  color: white;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .2s;
+  font-family: 'DM Sans', sans-serif;
+}
+.mc-close-btn:hover { background: rgba(255,255,255,.25); }
+
+/* Stats */
+.mc-stats {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: rgba(255,255,255,.12);
+  border-radius: 14px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+}
+.mc-stat { display: flex; flex-direction: column; align-items: center; }
+.mc-stat span { font-size: 20px; font-weight: 800; }
+.mc-stat small { font-size: 11px; opacity: .75; }
+.mc-stat-div { width: 1px; height: 30px; background: rgba(255,255,255,.25); }
+
+/* Search */
+.mc-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255,255,255,.12);
+  border: 1.5px solid rgba(255,255,255,.2);
+  border-radius: 100px;
+  padding: 8px 14px;
+}
+.mc-search {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: white;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  flex: 1;
+}
+.mc-search::placeholder { color: rgba(255,255,255,.55); }
+
+/* Lista de compras */
+.mc-list { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+
+.mc-card {
+  display: flex;
+  align-items: stretch;
+  background: #fff;
+  border: 1.5px solid #e8e8e8;
+  border-radius: 16px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all .2s;
+  position: relative;
+}
+.mc-card:hover {
+  border-color: #007a7a;
+  box-shadow: 0 4px 16px rgba(0,128,128,.12);
+  transform: translateY(-1px);
+}
+
+.mc-card-img-wrap {
+  width: 90px;
+  flex-shrink: 0;
+  position: relative;
+}
+.mc-card-img-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.mc-cat-badge {
+  position: absolute;
+  bottom: 6px; left: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 7px;
+  border-radius: 20px;
+  color: #333;
+  white-space: nowrap;
+}
+
+.mc-card-body {
+  flex: 1;
+  padding: 12px 10px 12px 14px;
+  min-width: 0;
+}
+.mc-folio {
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 3px;
+  font-family: monospace;
+}
+.mc-folio strong { color: #007a7a; }
+.mc-titulo {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin: 0 0 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mc-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 8px;
+}
+.mc-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.mc-precio { font-size: 15px; font-weight: 700; color: #007a7a; }
+.mc-metodo { font-size: 12px; color: #666; }
+.mc-fecha { font-size: 10px; color: #bbb; margin-top: 4px; }
+
+.mc-arrow {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 20px;
+  color: #ccc;
+  flex-shrink: 0;
+}
+.mc-card:hover .mc-arrow { color: #007a7a; }
+
+/* ── Detalle de compra ── */
+.cd-modal-header {
+  background: linear-gradient(135deg, #0d2b2b 0%, #005f5f 100%);
+  padding: 20px 24px;
+  color: white;
+  position: relative;
+}
+.cd-modal-header h3 { font-size: 18px; font-weight: 700; margin: 0; padding-left: 8px; }
+.cd-modal-header .mc-close-btn {
+  position: static;
+  background: transparent;
+  font-size: 14px;
+  width: auto; height: auto;
+  border-radius: 0;
+  padding: 0;
+  font-weight: 600;
+  gap: 4px;
+  display: inline-flex;
+}
+.cd-modal-header { display: flex; align-items: center; gap: 8px; }
+
+.cd-hero { position: relative; }
+.cd-hero img { width: 100%; height: 180px; object-fit: cover; display: block; }
+.cd-estado-badge {
+  position: absolute;
+  bottom: 12px; right: 12px;
+  background: #2e7d32;
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 20px;
+}
+
+.cd-section { padding: 16px 20px; border-bottom: 1px solid #f0f0f0; }
+.cd-section:last-of-type { border-bottom: none; }
+.cd-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-bottom: 10px;
+}
+.cd-folio-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f0faf8;
+  border: 1.5px solid #b2dfdb;
+  border-radius: 12px;
+  padding: 12px 16px;
+  flex-wrap: wrap;
+}
+.cd-folio-label { font-size: 12px; color: #666; flex-shrink: 0; }
+.cd-folio-num {
+  font-family: monospace;
+  font-size: 16px;
+  font-weight: 800;
+  color: #007a7a;
+  flex: 1;
+}
+.cd-copy-btn {
+  background: #007a7a;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  transition: opacity .2s;
+}
+.cd-copy-btn:hover { opacity: .85; }
+
+.cd-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 0;
+  font-size: 14px;
+  border-bottom: 1px solid #f5f5f5;
+  gap: 12px;
+}
+.cd-row:last-child { border-bottom: none; }
+.cd-row span { color: #888; flex-shrink: 0; }
+.cd-row strong { color: #1a1a1a; text-align: right; }
+
+.cd-actions {
+  padding: 16px 20px 24px;
+  display: flex;
+  gap: 10px;
+}
+.cd-btn-secondary {
+  flex: 1;
+  padding: 13px;
+  background: #f5f5f5;
+  border: none;
+  border-radius: 12px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  cursor: pointer;
+  transition: background .2s;
+}
+.cd-btn-secondary:hover { background: #eee; }
+
+/* Responsive */
+@media (max-width: 480px) {
+  .mc-modal { border-radius: 20px 20px 0 0; margin-top: auto; }
+  .mc-card-img-wrap { width: 75px; }
+  .cd-hero img { height: 140px; }
+}
+
+
+/* =====================================================
+   BILLETERA VIRTUAL
+   ===================================================== */
+
+.bl-modal {
+  background: #ffffff;
+  border-radius: 24px;
+  width: 100%;
+  max-width: 580px;
+  margin: 0 auto;
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0,0,0,.22);
+}
+
+/* ── Header ── */
+.bl-header {
+  background: linear-gradient(145deg, #0a1f1f 0%, #003f3f 50%, #005f5f 100%);
+  padding: 24px 22px 20px;
+  color: white;
+  position: relative;
+}
+.bl-header-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.bl-wallet-icon { font-size: 32px; }
+.bl-header-label { font-size: 18px; font-weight: 800; }
+.bl-header-user  { font-size: 12px; opacity: .7; }
+
+.bl-saldo-principal { text-align: center; margin-bottom: 20px; }
+.bl-saldo-label { font-size: 11px; opacity: .7; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; }
+.bl-saldo-num   { font-size: 40px; font-weight: 900; line-height: 1; }
+.bl-saldo-equiv { font-size: 14px; opacity: .75; margin-top: 4px; }
+
+.bl-stats-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  background: rgba(255,255,255,.1);
+  border-radius: 14px;
+  padding: 12px 8px;
+}
+.bl-stat-item { text-align: center; }
+.bl-stat-item span { display: block; font-size: 14px; font-weight: 700; }
+.bl-stat-item small { font-size: 10px; opacity: .75; }
+.bl-stat-div { width: 1px; height: 28px; background: rgba(255,255,255,.2); }
+
+/* ── Tabs ── */
+.bl-tabs {
+  display: flex;
+  background: #f7f7f7;
+  border-bottom: 1.5px solid #eee;
+}
+.bl-tab {
+  flex: 1;
+  padding: 13px 8px;
+  border: none;
+  background: transparent;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: #888;
+  cursor: pointer;
+  border-bottom: 2.5px solid transparent;
+  transition: all .2s;
+}
+.bl-tab.active {
+  color: #007a7a;
+  border-bottom-color: #007a7a;
+  background: white;
+}
+
+/* ── Contenido ── */
+.bl-content { padding: 16px; min-height: 200px; }
+
+/* Resumen mini-cards */
+.bl-resumen-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.bl-mini-card {
+  border-radius: 14px;
+  padding: 14px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bl-mini-card.tarjeta   { background: #fff0f0; border: 1.5px solid #ffcdd2; }
+.bl-mini-card.acapoints { background: #fff8e1; border: 1.5px solid #ffe082; }
+.bl-mini-icon  { font-size: 22px; }
+.bl-mini-label { font-size: 11px; color: #888; }
+.bl-mini-val   { font-size: 16px; font-weight: 700; color: #333; }
+
+/* Movimiento row */
+.bl-mov-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  margin-bottom: 6px;
+}
+.bl-mov-icon { font-size: 20px; flex-shrink: 0; }
+.bl-mov-info { flex: 1; min-width: 0; }
+.bl-mov-info strong { display: block; font-size: 13px; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bl-mov-info span   { font-size: 11px; color: #999; }
+.bl-mov-monto { font-size: 14px; font-weight: 700; white-space: nowrap; }
+
+.bl-mes-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  padding: 8px 4px 4px;
+}
+
+/* Botones sección */
+.bl-ver-todos {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  margin-top: 4px;
+  background: transparent;
+  border: 1.5px solid #e0e0e0;
+  border-radius: 10px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: #007a7a;
+  cursor: pointer;
+  transition: background .2s;
+}
+.bl-ver-todos:hover { background: #f0faf8; }
+
+.bl-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  margin: 14px 0 8px;
+}
+
+.bl-btn-retirar {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  padding: 13px;
+  background: linear-gradient(135deg, #007a7a 0%, #005f5f 100%);
+  color: white;
+  border: none;
+  border-radius: 14px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity .2s;
+}
+.bl-btn-retirar:hover { opacity: .9; }
+
+/* Retiro rows */
+.bl-retiro-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: #fafafa;
+  border-radius: 12px;
+  margin-bottom: 6px;
+  gap: 10px;
+}
+.bl-retiro-info { display: flex; flex-direction: column; gap: 2px; }
+.bl-retiro-info strong { font-size: 13px; color: #1a1a1a; }
+.bl-retiro-info span   { font-size: 11px; color: #999; }
+.bl-retiro-monto { font-size: 14px; font-weight: 700; color: #1565c0; display: block; text-align: right; }
+
+.bl-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 20px;
+  margin-top: 2px;
+}
+.bl-badge-pendiente  { background: #fff3cd; color: #856404; }
+.bl-badge-completado { background: #d4edda; color: #155724; }
+
+/* Tab retirar */
+.bl-retiro-saldo-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: linear-gradient(135deg, #0d2b2b, #005f5f);
+  color: white;
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 14px;
+  text-align: center;
+}
+.bl-retiro-saldo-label { font-size: 12px; opacity: .75; margin-bottom: 4px; }
+.bl-retiro-saldo-num   { font-size: 28px; font-weight: 800; }
+.bl-retiro-saldo-equiv { font-size: 13px; opacity: .7; margin-top: 3px; }
+
+.bl-info-box {
+  display: flex;
+  gap: 10px;
+  background: #e8f4fd;
+  border: 1.5px solid #bbdefb;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 13px;
+  color: #555;
+  margin-bottom: 16px;
+}
+.bl-info-box span { font-size: 18px; flex-shrink: 0; }
+.bl-info-box strong { display: block; color: #1a1a1a; margin-bottom: 2px; }
+.bl-info-box p { margin: 0; font-size: 12px; }
+
+.bl-form-retiro { display: flex; flex-direction: column; gap: 2px; }
+
+/* Responsive */
+@media (max-width: 480px) {
+  .bl-modal { border-radius: 20px; }
+  .bl-saldo-num { font-size: 32px; }
+  .bl-resumen-cards { grid-template-columns: 1fr 1fr; gap: 8px; }
+}
+
+
+/* ── Billetera: Saldos retiro grid ── */
+.bl-saldos-retiro-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.bl-saldo-retiro-card {
+  border-radius: 14px;
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.bl-saldo-retiro-card.tarjeta   { background:#fff0f5; border:1.5px solid #f8bbd0; }
+.bl-saldo-retiro-card.acapoints { background:#fff8e1; border:1.5px solid #ffe082; }
+.bl-src-icon   { font-size:22px; }
+.bl-src-label  { font-size:11px; color:#888; font-weight:600; }
+.bl-src-monto  { font-size:17px; font-weight:800; color:#1a1a1a; }
+.bl-src-tasa   { font-size:10px; color:#aaa; }
+.bl-src-retirable { font-size:12px; color:#555; margin-top:2px; }
+.bl-src-retirable strong { color:#007a7a; }
+
+.bl-total-retirable {
+  background: linear-gradient(135deg,#007a7a,#005f5f);
+  color: white;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.bl-total-retirable strong { font-size:18px; font-weight:800; }
+
+/* Fuente selector */
+.bl-fuente-selector {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bl-fuente-btn {
+  flex: 1;
+  min-width: 80px;
+  padding: 10px 8px;
+  border: 2px solid #e0e0e0;
+  border-radius: 12px;
+  background: white;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+  cursor: pointer;
+  text-align: center;
+  transition: all .2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.bl-fuente-btn span { font-size:11px; font-weight:700; color:#007a7a; }
+.bl-fuente-btn.active {
+  border-color: #007a7a;
+  background: rgba(0,122,122,.07);
+  color: #007a7a;
+}
+
+/* Resumen retiro */
+.bl-retiro-resumen {
+  background: #f8f8f8;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 4px 0 12px;
+  border: 1.5px solid #e8e8e8;
+}
+.bl-rr-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #555;
+  padding: 3px 0;
+}
+.bl-rr-total {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  border-top: 1.5px solid #e0e0e0;
+  padding-top: 8px;
+  margin-top: 6px;
+  color: #333;
+}
+.bl-rr-total strong { color: #007a7a; font-size:16px; }
+
+/* Resumen mini-card update */
+.bl-mini-card.tarjeta   { background:#fff0f5; border:1.5px solid #f8bbd0; }
+
