@@ -5,6 +5,25 @@
 const SUPA_URL = 'https://tjfpwsnshkuotrimlzgg.supabase.co';
 const SUPA_KEY = 'sb_publishable_PuAd91zK6iu3HPywDEaJfQ_YETFwkCd'; // ← REEMPLAZAR con tu clave completa
 
+// ── Analytics tracker ──────────────────────────────────
+const _sesionId = 'ses-' + Date.now().toString(36) + Math.random().toString(36).slice(2);
+const _dispositivo = /Mobi|Android/i.test(navigator.userAgent) ? 'mobile'
+                   : /iPad|Tablet/i.test(navigator.userAgent) ? 'tablet' : 'desktop';
+
+function trackEvento(tipo, pagina, referencia) {
+  // Fire-and-forget: nunca bloquea la UI
+  fetch(SUPA_URL + '/rest/v1/eventos_analytics', {
+    method: 'POST',
+    headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY,
+                'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+    body: JSON.stringify({
+      tipo, pagina: pagina || null, referencia: referencia ? String(referencia) : null,
+      usuario_id: currentUser?.id || null,
+      sesion_id: _sesionId, dispositivo: _dispositivo
+    })
+  }).catch(() => {});
+}
+
 async function supaFetch(endpoint, options = {}) {
   const method = (options.method || 'GET').toUpperCase();
   const extraHeaders = {};
@@ -518,14 +537,27 @@ async function confirmarRegistro() {
   if (btn) { btn.disabled = true; btn.textContent = 'Creando cuenta...'; }
 
   try {
-    const payload = { nombre: _regState.nombre, email: _regState.email, password_hash: _regState.pass, tipo: 'cliente' };
+    const payload = { nombre: _regState.nombre, email: _regState.email, password_hash: _regState.pass, tipo: 'cliente', rol: 'cliente' };
     if (_regState.phone) payload.telefono = '+52' + _regState.phone;
     const newUser = await supaFetch('/rest/v1/usuarios', { method: 'POST', body: JSON.stringify(payload) });
+    const userData = Array.isArray(newUser) ? newUser[0] : newUser;
+
+    // Asignar rol cliente en usuarios_roles
+    if (userData && userData.id) {
+      const rolData = await supaFetch('/rest/v1/roles?slug=eq.cliente&select=id').catch(()=>[]);
+      if (rolData && rolData.length > 0) {
+        supaFetch('/rest/v1/usuarios_roles', {
+          method: 'POST',
+          body: JSON.stringify({ usuario_id: userData.id, rol_id: rolData[0].id, asignado_por: userData.id })
+        }).catch(()=>{});
+      }
+    }
 
     if (_regState.timer) clearInterval(_regState.timer);
     _regState = { nombre:'', email:'', pass:'', phone:'', code:'', expires:0, timer:null };
-    setUser(Array.isArray(newUser) ? newUser[0] : newUser);
+    setUser(userData);
     closeModal();
+    trackEvento('registro', 'auth', 'cliente');
     showToast('🎉 ¡Cuenta creada! Bienvenido a AcaConnect');
   } catch(e) {
     showToast('❌ Error al crear cuenta: ' + e.message);
@@ -694,8 +726,9 @@ function setUser(user) {
   const actions = document.getElementById('nav-actions');
   const nav = document.getElementById('main-nav');
   const color = nav.classList.contains('scrolled') ? 'var(--text-dark)' : '#fff';
-  const adminBtn = user.tipo === 'admin'
-    ? `<button onclick="openAdmin()" style="background:var(--orange);border:none;color:#fff;padding:7px 16px;border-radius:100px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;margin-right:4px;">⚙️ Admin</button>`
+  const rolU = user.rol || user.tipo || 'cliente';
+  const adminBtn = (rolU === 'admin' || rolU === 'supervisor')
+    ? `<button onclick="openAdmin()" style="background:${rolU==='admin'?'var(--orange)':'#F57C00'};border:none;color:#fff;padding:7px 16px;border-radius:100px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;margin-right:4px;">${rolU==='admin'?'⚙️ Admin':'🔍 Supervisor'}</button>`
     : '';
   const avatarContent = user.foto_perfil
     ? `<img src="${user.foto_perfil}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"/>`
@@ -1440,6 +1473,7 @@ function openDetailByIdx(idx) {
 }
 
 function openDetail(s) {
+  trackEvento('vista_servicio', 'marketplace', s.id);
   currentDetail = s;
   const overlay = document.getElementById('detail-overlay');
 
@@ -1551,6 +1585,7 @@ function filterByCatAndClose() {
 }
 
 async function contactProvider() {
+  if (currentDetail) trackEvento('click_contacto', 'marketplace', currentDetail.id);
   if (!currentDetail) return;
 
   // Prioridad: 1) WhatsApp propio de la publicación, 2) teléfono del perfil del proveedor
@@ -1677,13 +1712,19 @@ async function loadPendingCount() {
 }
 
 async function openAdmin() {
-  if (!currentUser || currentUser.tipo !== 'admin') {
+  if (!currentUser || !tieneRol(['admin','supervisor'])) {
     showToast('Solo administradores pueden acceder'); return;
   }
   document.getElementById('admin-panel').classList.add('open');
   adminTabActual = 'pendientes';
   document.querySelectorAll('.admin-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'pendientes'));
   loadAdminList('pendientes');
+  // Badge de verificaciones pendientes
+  supaFetch('/rest/v1/datos_vendedor?estado=eq.pendiente&select=id').then(d => {
+    const n = (d||[]).length;
+    const tabEl = document.getElementById('tab-verificaciones');
+    if (tabEl && n > 0) tabEl.innerHTML = `🪪 Verificaciones <span style="background:#E53935;color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;margin-left:4px;">${n}</span>`;
+  }).catch(()=>{});
   loadMsgBadge();
   purgeExpiredRejected(); // eliminar rechazados expirados al abrir
 }
@@ -1713,6 +1754,15 @@ async function loadAdminList(tab) {
       renderAdminMensajes(msgs);
     } else if (tab === 'ganancias') {
       renderAdminGanancias();
+      return;
+    } else if (tab === 'roles') {
+      await renderAdminRoles();
+      return;
+    } else if (tab === 'verificaciones') {
+      await renderAdminVerificaciones();
+      return;
+    } else if (tab === 'analytics') {
+      await renderAdminAnalytics();
       return;
     } else {
       const estado = tab === 'pendientes' ? 'pendiente' : tab === 'activos' ? 'activo' : 'rechazado';
@@ -1961,24 +2011,37 @@ function renderAdminUsers(users) {
   list.innerHTML = `<div style="background:#fff;border-radius:14px;border:1.5px solid var(--border);padding:8px 20px;">` +
     users.map(u => {
       const esYo = currentUser && u.id === currentUser.id;
-      const btnAdmin = esYo
-        ? `<span style="font-size:12px;color:var(--text-light);padding:6px 12px;">Tú</span>`
-        : `<button class="btn-toggle-admin" onclick="toggleAdmin('${u.id}','${u.tipo}')">
-             ${u.tipo === 'admin' ? '👑 Quitar admin' : '⬆️ Hacer admin'}
-           </button>`;
+      const rolActual = u.rol || u.tipo || 'cliente';
+      const ROLES_INFO = {
+        admin:      { icon:'👑', color:'#E53935', bg:'#FFEBEE' },
+        supervisor: { icon:'🔍', color:'#F57C00', bg:'#FFF3E0' },
+        vendedor:   { icon:'🏪', color:'#1976D2', bg:'#E3F2FD' },
+        cliente:    { icon:'👤', color:'#388E3C', bg:'#E8F5E9' },
+      };
+      const ri = ROLES_INFO[rolActual] || ROLES_INFO.cliente;
+      const rolSelector = esYo
+        ? `<span style="font-size:12px;color:#aaa;padding:6px 10px;">Tú</span>`
+        : `<select class="rol-selector" onchange="cambiarRol('${u.id}', this.value, '${rolActual}')" 
+             style="border:1.5px solid ${ri.color};background:${ri.bg};color:${ri.color};
+                    font-family:'DM Sans',sans-serif;font-size:12px;font-weight:700;
+                    padding:5px 10px;border-radius:20px;cursor:pointer;outline:none;">
+            <option value="admin"      ${rolActual==='admin'      ?'selected':''}>👑 Admin</option>
+            <option value="supervisor" ${rolActual==='supervisor' ?'selected':''}>🔍 Supervisor</option>
+            <option value="vendedor"   ${rolActual==='vendedor'   ?'selected':''}>🏪 Vendedor</option>
+            <option value="cliente"    ${rolActual==='cliente'    ?'selected':''}>👤 Cliente</option>
+          </select>`;
       const btnEliminar = esYo
         ? ``
         : `<button class="btn-delete-user" onclick="eliminarUsuario('${u.id}','${u.nombre}')">🗑️ Eliminar</button>`;
       return `
       <div class="admin-user-row" id="urow-${u.id}">
-        <div class="admin-user-avatar">${u.nombre[0].toUpperCase()}</div>
+        <div class="admin-user-avatar" style="background:${ri.bg};color:${ri.color};">${ri.icon}</div>
         <div class="admin-user-info">
           <strong>${u.nombre}</strong>
-          <span>${u.email} · Registro: ${new Date(u.creado_en).toLocaleDateString('es-MX')}</span>
+          <span>${u.email} · <span style="color:${ri.color};font-weight:600;">${rolActual}</span> · ${new Date(u.creado_en).toLocaleDateString('es-MX')}</span>
         </div>
-        <span class="tipo-badge tipo-${u.tipo}">${u.tipo}</span>
         <div class="admin-user-actions">
-          ${btnAdmin}
+          ${rolSelector}
           ${btnEliminar}
         </div>
       </div>`;
@@ -1996,17 +2059,62 @@ function togglePass(inputId, btn) {
   }
 }
 
-async function toggleAdmin(userId, tipoActual) {
-  const nuevoTipo = tipoActual === 'admin' ? 'cliente' : 'admin';
-  if (!confirm('¿Cambiar este usuario a ' + nuevoTipo + '?')) return;
+async function cambiarRol(userId, nuevoRol, rolAnterior) {
+  const LABELS = { admin:'Administrador', supervisor:'Supervisor', vendedor:'Vendedor', cliente:'Cliente' };
+  if (!confirm(`¿Cambiar a ${LABELS[nuevoRol]}?`)) {
+    // Revertir el select si cancela
+    loadAdminList('usuarios'); return;
+  }
   try {
-    await supaFetch('/rest/v1/usuarios?id=eq.' + userId, {
-      method: 'PATCH',
-      body: JSON.stringify({ tipo: nuevoTipo })
-    });
-    showToast('✅ Rol actualizado a ' + nuevoTipo);
+    // 1. Actualizar campo rol en usuarios
+    //    Intentar actualizar ambos campos; si tipo falla por constraint, solo actualizar rol
+    try {
+      await supaFetch('/rest/v1/usuarios?id=eq.' + userId, {
+        method: 'PATCH',
+        body: JSON.stringify({ tipo: nuevoRol, rol: nuevoRol })
+      });
+    } catch(e) {
+      // tipo tiene constraint viejo — actualizar solo 'rol' mientras se ejecuta el SQL de fix
+      await supaFetch('/rest/v1/usuarios?id=eq.' + userId, {
+        method: 'PATCH',
+        body: JSON.stringify({ rol: nuevoRol })
+      });
+    }
+
+    // 2. Actualizar usuarios_roles
+    const rolData = await supaFetch('/rest/v1/roles?slug=eq.' + nuevoRol + '&select=id').catch(()=>[]);
+    if (rolData && rolData.length > 0) {
+      // Eliminar rol anterior y asignar nuevo
+      await supaFetch('/rest/v1/usuarios_roles?usuario_id=eq.' + userId, {
+        method: 'DELETE'
+      }).catch(()=>{});
+      await supaFetch('/rest/v1/usuarios_roles', {
+        method: 'POST',
+        body: JSON.stringify({ usuario_id: parseInt(userId), rol_id: rolData[0].id, asignado_por: currentUser.id })
+      });
+    }
+
+    // 3. Registrar en historial
+    supaFetch('/rest/v1/historial_roles', {
+      method: 'POST',
+      body: JSON.stringify({
+        usuario_id:   parseInt(userId),
+        rol_anterior: rolAnterior,
+        rol_nuevo:    nuevoRol,
+        cambiado_por: currentUser.id,
+        motivo:       'Cambio manual desde panel admin'
+      })
+    }).catch(()=>{});
+
+    showToast('✅ Rol cambiado a ' + LABELS[nuevoRol]);
     loadAdminList('usuarios');
   } catch(e) { showToast('❌ Error: ' + e.message); }
+}
+
+// Mantener compatibilidad con llamadas antiguas a toggleAdmin
+async function toggleAdmin(userId, tipoActual) {
+  const nuevoRol = tipoActual === 'admin' ? 'cliente' : 'admin';
+  await cambiarRol(userId, nuevoRol, tipoActual);
 }
 
 async function eliminarUsuario(userId, nombre) {
@@ -2035,7 +2143,11 @@ async function eliminarUsuario(userId, nombre) {
     const saved = localStorage.getItem('aca_user');
     if (saved) {
       const user = JSON.parse(saved);
-      if (user && user.id && user.nombre) currentUser = user;
+      if (user && user.id && user.nombre) {
+        currentUser = user;
+        // Asegurar que el campo rol esté presente
+        if (!currentUser.rol) currentUser.rol = currentUser.tipo || 'cliente';
+      }
     }
   } catch(e) {}
 
@@ -2072,6 +2184,23 @@ function showToast(msg) {
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 3000);
 }
+
+
+// ── Helpers de rol ─────────────────────────────────────
+const NIVEL_ROL = { admin:4, supervisor:3, vendedor:2, cliente:1 };
+
+function rolActual() {
+  return currentUser?.rol || currentUser?.tipo || 'cliente';
+}
+function nivelRol() {
+  return NIVEL_ROL[rolActual()] || 1;
+}
+function tieneRol(roles) {
+  return roles.includes(rolActual());
+}
+function esAdmin()      { return rolActual() === 'admin'; }
+function esSupervisor() { return tieneRol(['admin','supervisor']); }
+function esVendedor()   { return tieneRol(['admin','supervisor','vendedor']); }
 
 /* =====================================================
    SISTEMA DE PAGOS - ACACONNECT
@@ -2203,7 +2332,23 @@ function updateAcaPointsUI() {
 // Hook showPage para cargar datos cuando se entra a la página
 const _origShowPage = showPage;
 showPage = function(name) {
+  if (name === 'publish') {
+    if (!currentUser) { openModal('login'); showToast('⚠️ Inicia sesión para publicar'); return; }
+    const rol = rolActual();
+    if (rol === 'cliente') {
+      // Dejar que la página cargue y luego mostrar el panel de solicitud
+      _origShowPage(name);
+      pvMostrarPanelSolicitud();
+      return;
+    }
+    // vendedor, supervisor, admin → mostrar formulario normal
+    _origShowPage(name);
+    document.getElementById('pv-solicitud-panel').style.display = 'none';
+    document.getElementById('pv-form-publicar').style.display   = 'block';
+    return;
+  }
   _origShowPage(name);
+  trackEvento('vista_pagina', name, null);
   if (name === 'acapoints') {
     if (!currentUser) {
       document.getElementById('acap-hero-balance').style.display = 'none';
@@ -2621,6 +2766,7 @@ async function confirmPago() {
       creado_en:        new Date().toISOString()
     };
     comprasAdd(compraLocal);
+    trackEvento('pago', 'marketplace', selectedPayMethod + ':' + precio);
     // Registrar en billetera: gasto reflejado
     billeteraAdd({
       tipo: selectedPayMethod === 'acapoints' ? 'gasto_acapoints' : 'gasto_tarjeta',
@@ -4099,5 +4245,1063 @@ function openVentaDetalle(id) {
 function closeVentaDetalle() {
   document.getElementById('venta-detalle-overlay').style.display = 'none';
   openMisVentas();
+}
+
+
+/* =====================================================
+   ADMIN — PANEL DE ROLES
+   ===================================================== */
+
+async function renderAdminRoles() {
+  const list = document.getElementById('admin-list');
+  list.innerHTML = `<div style="text-align:center;padding:30px;color:#aaa;">Cargando roles...</div>`;
+
+  try {
+    const [roles, usuarios, historial] = await Promise.all([
+      supaFetch('/rest/v1/roles?order=nivel.desc&select=*'),
+      supaFetch('/rest/v1/usuarios?select=id,nombre,email,rol,tipo&order=nombre.asc'),
+      supaFetch('/rest/v1/historial_roles?order=cambiado_en.desc&limit=10&select=*').catch(()=>[])
+    ]);
+
+    const countByRol = {};
+    (usuarios||[]).forEach(u => {
+      const r = u.rol || u.tipo || 'cliente';
+      countByRol[r] = (countByRol[r]||0) + 1;
+    });
+
+    const COLORS = { admin:'#E53935', supervisor:'#F57C00', vendedor:'#1976D2', cliente:'#388E3C' };
+    const BG     = { admin:'#FFEBEE', supervisor:'#FFF3E0', vendedor:'#E3F2FD', cliente:'#E8F5E9' };
+
+    list.innerHTML = `
+    <div style="padding:4px 0;">
+
+      <!-- Tarjetas de roles -->
+      <div style="font-size:12px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;">
+        Roles del sistema
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px;">
+        ${(roles||[]).map(r => `
+        <div style="background:${BG[r.slug]||'#f5f5f5'};border:1.5px solid ${COLORS[r.slug]||'#ccc'};
+                    border-radius:14px;padding:14px 16px;">
+          <div style="font-size:24px;margin-bottom:4px;">${r.icono}</div>
+          <div style="font-size:15px;font-weight:800;color:${COLORS[r.slug]||'#333'};">${r.nombre}</div>
+          <div style="font-size:11px;color:#888;margin:4px 0 8px;">${r.descripcion}</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="background:${COLORS[r.slug]||'#888'};color:white;font-size:12px;font-weight:700;
+                         padding:3px 10px;border-radius:20px;">${countByRol[r.slug]||0} usuarios</span>
+            <span style="font-size:11px;color:#aaa;">Nivel ${r.nivel}</span>
+          </div>
+        </div>`).join('')}
+      </div>
+
+      <!-- Lista de usuarios con rol -->
+      <div style="font-size:12px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;">
+        Usuarios y sus roles
+      </div>
+      <div style="background:#fff;border:1.5px solid #e8e8e8;border-radius:14px;overflow:hidden;margin-bottom:20px;">
+        ${(usuarios||[]).map(u => {
+          const r   = u.rol || u.tipo || 'cliente';
+          const esYo = currentUser && u.id === currentUser.id;
+          return `
+          <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid #f5f5f5;">
+            <div style="width:34px;height:34px;border-radius:50%;background:${BG[r]||'#f5f5f5'};
+                        display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">
+              ${{ admin:'👑', supervisor:'🔍', vendedor:'🏪', cliente:'👤' }[r]||'👤'}
+            </div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:13px;font-weight:700;color:#1a1a1a;">${u.nombre} ${esYo?'<span style="font-size:10px;background:#eee;padding:1px 6px;border-radius:10px;color:#888;">Tú</span>':''}</div>
+              <div style="font-size:11px;color:#aaa;">${u.email}</div>
+            </div>
+            ${esYo
+              ? `<span style="font-size:11px;color:#aaa;padding:5px 10px;">—</span>`
+              : `<select onchange="cambiarRol('${u.id}',this.value,'${r}')"
+                  style="border:1.5px solid ${COLORS[r]||'#ccc'};background:${BG[r]||'#f5f5f5'};
+                         color:${COLORS[r]||'#333'};font-family:'DM Sans',sans-serif;font-size:12px;
+                         font-weight:700;padding:5px 10px;border-radius:20px;cursor:pointer;outline:none;">
+                  <option value="admin"      ${r==='admin'      ?'selected':''}>👑 Admin</option>
+                  <option value="supervisor" ${r==='supervisor' ?'selected':''}>🔍 Supervisor</option>
+                  <option value="vendedor"   ${r==='vendedor'   ?'selected':''}>🏪 Vendedor</option>
+                  <option value="cliente"    ${r==='cliente'    ?'selected':''}>👤 Cliente</option>
+                </select>`
+            }
+          </div>`;
+        }).join('')}
+      </div>
+
+      <!-- Historial reciente -->
+      <div style="font-size:12px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;">
+        Cambios recientes de rol
+      </div>
+      <div style="background:#fff;border:1.5px solid #e8e8e8;border-radius:14px;overflow:hidden;">
+        ${(historial||[]).length === 0
+          ? `<p style="text-align:center;color:#aaa;padding:20px;font-size:13px;">Sin cambios registrados</p>`
+          : (historial||[]).map(h => {
+              const fecha = new Date(h.cambiado_en).toLocaleDateString('es-MX',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+              return `
+              <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid #f5f5f5;font-size:12px;">
+                <span style="font-size:16px;">🔄</span>
+                <div style="flex:1;">
+                  <strong>Usuario #${h.usuario_id}</strong>
+                  <span style="color:#aaa;"> · ${h.rol_anterior||'—'} → </span>
+                  <span style="color:${COLORS[h.rol_nuevo]||'#333'};font-weight:700;">${h.rol_nuevo}</span>
+                </div>
+                <span style="color:#bbb;white-space:nowrap;">${fecha}</span>
+              </div>`;
+            }).join('')
+        }
+      </div>
+
+    </div>`;
+  } catch(e) {
+    list.innerHTML = `<p style="color:red;padding:20px;font-size:13px;">Error al cargar roles: ${e.message}</p>`;
+  }
+}
+
+/* =====================================================
+   SOLICITUD DE VERIFICACIÓN VENDEDOR
+   ===================================================== */
+
+async function verificarSolicitudVendedor() {
+  try {
+    const data = await supaFetch(
+      '/rest/v1/datos_vendedor?usuario_id=eq.' + currentUser.id + '&select=estado,motivo_rechazo'
+    );
+    if (data && data.length > 0) {
+      const sol = data[0];
+      if (sol.estado === 'pendiente') {
+        mostrarEstadoSolicitud('⏳', 'Solicitud en revisión',
+          'Tu solicitud para ser vendedor está siendo revisada. Te notificaremos cuando sea aprobada.', false);
+        return;
+      }
+      if (sol.estado === 'aprobado') {
+        // Ya es vendedor pero el campo rol no se actualizó localmente
+        mostrarEstadoSolicitud('✅', '¡Ya eres vendedor!',
+          'Tu cuenta ya fue verificada. Recarga la página para publicar tu servicio.', false);
+        return;
+      }
+      if (sol.estado === 'rechazado') {
+        mostrarEstadoSolicitud('❌', 'Solicitud rechazada',
+          'Tu solicitud fue rechazada.' + (sol.motivo_rechazo ? ' Motivo: ' + sol.motivo_rechazo : '') +
+          ' Puedes volver a enviar una nueva solicitud.', true);
+        return;
+      }
+    }
+  } catch(e) {}
+  // Sin solicitud previa → mostrar formulario
+  abrirSolicitudVendedor();
+}
+
+function abrirSolicitudVendedor() {
+  const ovl = document.getElementById('sv-overlay');
+  ovl.style.display = 'block';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSolicitudVendedor() {
+  document.getElementById('sv-overlay').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function mostrarEstadoSolicitud(icon, titulo, msg, mostrarReenviar) {
+  document.getElementById('sv-estado-icon').textContent   = icon;
+  document.getElementById('sv-estado-titulo').textContent = titulo;
+  document.getElementById('sv-estado-msg').textContent    = msg;
+  const ovl = document.getElementById('sv-estado-overlay');
+  ovl.style.display = 'flex';
+}
+
+function svPreview(input, boxId, prevId) {
+  const file = input.files[0];
+  if (!file) return;
+  const ph   = document.getElementById(boxId).querySelector('.sv-upload-ph');
+  const prev = document.getElementById(prevId);
+  if (file.type.startsWith('image/')) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      prev.src = e.target.result;
+      prev.style.display = 'block';
+      if (ph) ph.style.display = 'none';
+    };
+    reader.readAsDataURL(file);
+  } else {
+    if (ph) ph.innerHTML = `<span style="font-size:20px;">📄</span><span>${file.name}</span>`;
+  }
+}
+
+async function enviarSolicitudVendedor() {
+  const nombre  = document.getElementById('sv-nombre').value.trim();
+  const curp    = document.getElementById('sv-curp').value.trim().toUpperCase();
+  const fileIne = document.getElementById('sv-file-ine').files[0];
+  const fileActa= document.getElementById('sv-file-acta').files[0];
+
+  if (!nombre)   { showToast('⚠️ Ingresa tu nombre completo'); return; }
+  if (curp.length !== 18) { showToast('⚠️ La CURP debe tener 18 caracteres'); return; }
+  if (!fileIne)  { showToast('⚠️ Sube la foto del frente de tu INE'); return; }
+  if (!fileActa) { showToast('⚠️ Sube tu acta de nacimiento'); return; }
+
+  const btn = document.getElementById('sv-btn-enviar');
+  btn.textContent = 'Subiendo documentos...'; btn.disabled = true;
+
+  try {
+    // Subir imágenes a Supabase Storage
+    const ineUrl   = await uploadToStorage(fileIne,  'vendedores/' + currentUser.id);
+    const actaUrl  = await uploadToStorage(fileActa, 'vendedores/' + currentUser.id);
+
+    const fileIner  = document.getElementById('sv-file-iner').files[0];
+    const fileSelfie= document.getElementById('sv-file-selfie').files[0];
+    const inerUrl   = fileIner   ? await uploadToStorage(fileIner,   'vendedores/' + currentUser.id) : null;
+    const selfieUrl = fileSelfie ? await uploadToStorage(fileSelfie, 'vendedores/' + currentUser.id) : null;
+
+    btn.textContent = 'Enviando solicitud...';
+
+    // Guardar en datos_vendedor (upsert por si ya tenía rechazada)
+    await fetch(SUPA_URL + '/rest/v1/datos_vendedor', {
+      method: 'POST',
+      headers: {
+        'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=minimal'
+      },
+      body: JSON.stringify({
+        usuario_id:      currentUser.id,
+        nombre_completo: nombre,
+        curp,
+        ine_url:         ineUrl,
+        ine_reverso_url: inerUrl,
+        acta_url:        actaUrl,
+        selfie_url:      selfieUrl,
+        estado:          'pendiente',
+        motivo_rechazo:  null
+      })
+    });
+
+    closeSolicitudVendedor();
+    mostrarEstadoSolicitud('🎉', '¡Solicitud enviada!',
+      'Revisaremos tus documentos en las próximas 24 horas. Te notificaremos cuando tu cuenta sea aprobada como vendedor.',
+      false);
+
+  } catch(e) {
+    showToast('❌ Error: ' + e.message);
+  } finally {
+    btn.textContent = 'Enviar solicitud'; btn.disabled = false;
+  }
+}
+
+
+/* =====================================================
+   ADMIN — VERIFICACIONES DE VENDEDORES
+   ===================================================== */
+
+async function renderAdminVerificaciones() {
+  const list = document.getElementById('admin-list');
+  list.innerHTML = `<div style="text-align:center;padding:30px;color:#aaa;">Cargando solicitudes...</div>`;
+
+  try {
+    const solis = await supaFetch(
+      '/rest/v1/datos_vendedor?order=creado_en.desc&select=*'
+    );
+    // Actualizar badge del tab
+    const pendientes = (solis||[]).filter(s => s.estado === 'pendiente').length;
+    const tabEl = document.getElementById('tab-verificaciones');
+    if (tabEl && pendientes > 0) {
+      tabEl.innerHTML = `🪪 Verificaciones <span style="background:#E53935;color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;margin-left:4px;">${pendientes}</span>`;
+    }
+
+    if (!solis || solis.length === 0) {
+      list.innerHTML = `<div style="text-align:center;padding:48px 20px;">
+        <div style="font-size:48px;margin-bottom:12px;">🪪</div>
+        <h3 style="color:#1a1a1a;">Sin solicitudes aún</h3>
+        <p style="color:#888;font-size:14px;">Las solicitudes de verificación aparecerán aquí.</p>
+      </div>`; return;
+    }
+
+    const estadoConfig = {
+      pendiente:  { color:'#F57C00', bg:'#FFF3E0', icon:'⏳', label:'Pendiente' },
+      aprobado:   { color:'#2E7D32', bg:'#E8F5E9', icon:'✅', label:'Aprobado'  },
+      rechazado:  { color:'#C62828', bg:'#FFEBEE', icon:'❌', label:'Rechazado' },
+    };
+
+    list.innerHTML = `<div style="display:flex;flex-direction:column;gap:12px;">` +
+    solis.map(s => {
+      const est  = estadoConfig[s.estado] || estadoConfig.pendiente;
+      const fecha = new Date(s.creado_en).toLocaleDateString('es-MX', {day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+      return `
+      <div style="background:#fff;border:1.5px solid #e8e8e8;border-radius:16px;overflow:hidden;">
+
+        <div style="background:${est.bg};border-bottom:1.5px solid ${est.color}33;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <div>
+            <div style="font-size:15px;font-weight:800;color:#1a1a1a;">${s.nombre_completo}</div>
+            <div style="font-size:11px;color:#888;">CURP: ${s.curp} · Usuario #${s.usuario_id} · ${fecha}</div>
+          </div>
+          <span style="background:${est.color};color:#fff;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;">
+            ${est.icon} ${est.label}
+          </span>
+        </div>
+
+        <div style="padding:14px 16px;">
+          <div style="font-size:11px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;">Documentos</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+            ${s.ine_url ? `<a href="${s.ine_url}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:#e3f2fd;border:1.5px solid #90caf9;border-radius:8px;font-size:12px;font-weight:600;color:#1565c0;text-decoration:none;">🪪 INE Frente</a>` : ''}
+            ${s.ine_reverso_url ? `<a href="${s.ine_reverso_url}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:#e3f2fd;border:1.5px solid #90caf9;border-radius:8px;font-size:12px;font-weight:600;color:#1565c0;text-decoration:none;">🪪 INE Reverso</a>` : ''}
+            ${s.acta_url ? `<a href="${s.acta_url}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:#f3e5f5;border:1.5px solid #ce93d8;border-radius:8px;font-size:12px;font-weight:600;color:#7b1fa2;text-decoration:none;">📄 Acta</a>` : ''}
+            ${s.selfie_url ? `<a href="${s.selfie_url}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:#e8f5e9;border:1.5px solid #a5d6a7;border-radius:8px;font-size:12px;font-weight:600;color:#2e7d32;text-decoration:none;">🤳 Selfie</a>` : ''}
+          </div>
+
+          ${s.motivo_rechazo ? `<div style="background:#ffebee;border:1px solid #ffcdd2;border-radius:8px;padding:8px 12px;font-size:12px;color:#c62828;margin-bottom:10px;">❌ Rechazo anterior: ${s.motivo_rechazo}</div>` : ''}
+
+          ${s.estado === 'pendiente' ? `
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <button onclick="resolverVerificacion(${s.id},${s.usuario_id},'aprobado','')"
+              style="background:#2e7d32;color:#fff;border:none;border-radius:10px;padding:9px 20px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;flex:1;">
+              ✅ Aprobar vendedor
+            </button>
+            <button onclick="pedirMotivoRechazo(${s.id},${s.usuario_id})"
+              style="background:#fff;color:#c62828;border:1.5px solid #ffcdd2;border-radius:10px;padding:9px 20px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;flex:1;">
+              ❌ Rechazar
+            </button>
+          </div>` : s.estado === 'aprobado' ? `
+          <div style="font-size:12px;color:#2e7d32;">✅ Aprobado — el usuario ya tiene rol vendedor</div>
+          ` : `
+          <div style="font-size:12px;color:#c62828;margin-bottom:8px;">❌ Rechazado</div>
+          <button onclick="resolverVerificacion(${s.id},${s.usuario_id},'aprobado','')"
+            style="background:#2e7d32;color:#fff;border:none;border-radius:10px;padding:8px 18px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:700;cursor:pointer;">
+            ✅ Aprobar de todas formas
+          </button>`}
+        </div>
+      </div>`;
+    }).join('') + `</div>`;
+  } catch(e) {
+    list.innerHTML = `<p style="color:red;padding:20px;font-size:13px;">Error: ${e.message}</p>`;
+  }
+}
+
+// ── Aprobar o rechazar solicitud ─────────────────────────
+async function resolverVerificacion(solId, usuarioId, decision, motivo) {
+  try {
+    // 1. Actualizar estado en datos_vendedor
+    await supaFetch('/rest/v1/datos_vendedor?id=eq.' + solId, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        estado:          decision,
+        motivo_rechazo:  motivo || null,
+        revisado_por:    currentUser.id,
+        revisado_en:     new Date().toISOString()
+      })
+    });
+
+    if (decision === 'aprobado') {
+      // 2. Cambiar rol del usuario a vendedor
+      await cambiarRol(String(usuarioId), 'vendedor', 'cliente');
+    }
+
+    showToast(decision === 'aprobado' ? '✅ Vendedor aprobado' : '❌ Solicitud rechazada');
+    renderAdminVerificaciones();
+  } catch(e) { showToast('❌ Error: ' + e.message); }
+}
+
+function pedirMotivoRechazo(solId, usuarioId) {
+  const motivo = prompt('Motivo del rechazo (opcional):') ?? '';
+  if (motivo === null) return; // canceló
+  resolverVerificacion(solId, usuarioId, 'rechazado', motivo);
+}
+
+
+/* =====================================================
+   FLUJO SOLICITUD VENDEDOR — INTEGRADO EN PÁGINA
+   ===================================================== */
+
+async function pvMostrarPanelSolicitud() {
+  // Ocultar formulario de publicar, mostrar panel de solicitud
+  document.getElementById('pv-form-publicar').style.display   = 'none';
+  document.getElementById('pv-solicitud-panel').style.display = 'block';
+  // Ocultar todos los sub-paneles mientras carga
+  ['pv-estado-pendiente','pv-estado-rechazado','pv-form-solicitud'].forEach(id => {
+    document.getElementById(id).style.display = 'none';
+  });
+
+  try {
+    const data = await supaFetch(
+      '/rest/v1/datos_vendedor?usuario_id=eq.' + currentUser.id + '&select=estado,motivo_rechazo'
+    );
+
+    if (data && data.length > 0) {
+      const sol = data[0];
+      if (sol.estado === 'pendiente') {
+        document.getElementById('pv-estado-pendiente').style.display = 'block';
+        return;
+      }
+      if (sol.estado === 'rechazado') {
+        const motEl = document.getElementById('pv-motivo-rechazo');
+        if (motEl) motEl.textContent = sol.motivo_rechazo
+          ? 'Motivo: ' + sol.motivo_rechazo + '. Puedes volver a enviar tus documentos.'
+          : 'Puedes volver a enviar tus documentos.';
+        document.getElementById('pv-estado-rechazado').style.display = 'block';
+        // Mostrar también el formulario para reenviar
+        document.getElementById('pv-form-solicitud').style.display = 'block';
+        pvPaso(1);
+        return;
+      }
+    }
+    // Sin solicitud → mostrar formulario directamente
+    document.getElementById('pv-form-solicitud').style.display = 'block';
+    pvPaso(1);
+  } catch(e) {
+    document.getElementById('pv-form-solicitud').style.display = 'block';
+    pvPaso(1);
+  }
+}
+
+function pvPaso(n) {
+  [1,2,3].forEach(i => {
+    document.getElementById('pv-paso-' + i).style.display = i === n ? 'block' : 'none';
+    const step = document.getElementById('pvs-' + i);
+    if (step) step.classList.toggle('active', i <= n);
+  });
+  // Al llegar al paso 3, construir resumen
+  if (n === 3) {
+    const nombre = document.getElementById('pv-nombre').value.trim();
+    const curp   = document.getElementById('pv-curp').value.trim();
+    const ine    = document.getElementById('pv-file-ine').files[0];
+    const acta   = document.getElementById('pv-file-acta').files[0];
+
+    // Validar antes de avanzar
+    if (!nombre) { showToast('⚠️ Ingresa tu nombre completo'); pvPaso(1); return; }
+    if (curp.length !== 18) { showToast('⚠️ La CURP debe tener 18 caracteres'); pvPaso(1); return; }
+    if (!ine)  { showToast('⚠️ Sube la foto del frente de tu INE'); pvPaso(2); return; }
+    if (!acta) { showToast('⚠️ Sube tu acta de nacimiento'); pvPaso(2); return; }
+
+    document.getElementById('pv-resumen').innerHTML = `
+      <div class="pv-resumen-row"><span>👤 Nombre</span><strong>${nombre}</strong></div>
+      <div class="pv-resumen-row"><span>🪪 CURP</span><strong style="font-family:monospace;">${curp}</strong></div>
+      <div class="pv-resumen-row"><span>📷 INE frente</span><strong>✅ ${ine.name}</strong></div>
+      <div class="pv-resumen-row"><span>📄 Acta</span><strong>✅ ${acta.name}</strong></div>
+      ${document.getElementById('pv-file-iner').files[0] ? `<div class="pv-resumen-row"><span>📷 INE reverso</span><strong>✅ ${document.getElementById('pv-file-iner').files[0].name}</strong></div>` : ''}
+      ${document.getElementById('pv-file-selfie').files[0] ? `<div class="pv-resumen-row"><span>🤳 Selfie</span><strong>✅ ${document.getElementById('pv-file-selfie').files[0].name}</strong></div>` : ''}
+    `;
+  }
+  if (n === 2) {
+    // Validar paso 1 antes de avanzar
+    const nombre = document.getElementById('pv-nombre').value.trim();
+    const curp   = document.getElementById('pv-curp').value.trim();
+    if (!nombre) { showToast('⚠️ Ingresa tu nombre completo'); pvPaso(1); return; }
+    if (curp.length !== 18) { showToast('⚠️ La CURP debe tener 18 caracteres'); pvPaso(1); return; }
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function pvPreview(input, prevId, phId) {
+  const file = input.files[0];
+  if (!file) return;
+  const prev = document.getElementById(prevId);
+  const ph   = document.getElementById(phId);
+  if (file.type.startsWith('image/')) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      prev.src = e.target.result;
+      prev.style.display = 'block';
+      if (ph) ph.style.display = 'none';
+    };
+    reader.readAsDataURL(file);
+  } else {
+    if (ph) ph.innerHTML = `<span style="font-size:20px;">📄</span><span>${file.name}</span>`;
+  }
+}
+
+async function pvEnviarSolicitud() {
+  const nombre  = document.getElementById('pv-nombre').value.trim();
+  const curp    = document.getElementById('pv-curp').value.trim().toUpperCase();
+  const fileIne = document.getElementById('pv-file-ine').files[0];
+  const fileActa= document.getElementById('pv-file-acta').files[0];
+
+  const btn = document.getElementById('pv-btn-enviar');
+  btn.textContent = '⬆️ Subiendo documentos...'; btn.disabled = true;
+
+  try {
+    const ineUrl   = await uploadToStorage(fileIne,  'vendedores/' + currentUser.id);
+    const actaUrl  = await uploadToStorage(fileActa, 'vendedores/' + currentUser.id);
+    const fileIner = document.getElementById('pv-file-iner').files[0];
+    const fileSelf = document.getElementById('pv-file-selfie').files[0];
+    const inerUrl  = fileIner ? await uploadToStorage(fileIner, 'vendedores/' + currentUser.id) : null;
+    const selfUrl  = fileSelf ? await uploadToStorage(fileSelf, 'vendedores/' + currentUser.id) : null;
+
+    btn.textContent = '📨 Enviando solicitud...';
+
+    await fetch(SUPA_URL + '/rest/v1/datos_vendedor', {
+      method: 'POST',
+      headers: {
+        'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=minimal'
+      },
+      body: JSON.stringify({
+        usuario_id: currentUser.id, nombre_completo: nombre, curp,
+        ine_url: ineUrl, ine_reverso_url: inerUrl,
+        acta_url: actaUrl, selfie_url: selfUrl,
+        estado: 'pendiente', motivo_rechazo: null
+      })
+    });
+
+    // Mostrar estado de éxito en la misma página
+    document.getElementById('pv-form-solicitud').style.display  = 'none';
+    document.getElementById('pv-estado-rechazado').style.display= 'none';
+    document.getElementById('pv-estado-pendiente').style.display= 'block';
+    showToast('🎉 ¡Solicitud enviada! Te avisaremos cuando sea aprobada.');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  } catch(e) {
+    showToast('❌ Error: ' + e.message);
+  } finally {
+    btn.textContent = '🚀 Enviar solicitud'; btn.disabled = false;
+  }
+}
+
+// ── Al aprobar desde admin, actualizar currentUser si es el mismo ────
+const _origResolverVerificacion = resolverVerificacion;
+resolverVerificacion = async function(solId, usuarioId, decision, motivo) {
+  await _origResolverVerificacion(solId, usuarioId, decision, motivo);
+  // Si el admin aprobó al usuario actual (caso self-review en demo), actualizar UI
+  if (decision === 'aprobado' && currentUser && String(currentUser.id) === String(usuarioId)) {
+    currentUser.rol  = 'vendedor';
+    currentUser.tipo = 'vendedor';
+    try { localStorage.setItem('aca_user', JSON.stringify(currentUser)); } catch(e) {}
+  }
+};
+
+
+/* =====================================================
+   EXPORTAR USUARIOS A PDF
+   ===================================================== */
+
+async function exportarUsuariosPDF() {
+  const btn = document.querySelector('button[onclick="exportarUsuariosPDF()"]');
+  if (btn) { btn.textContent = '⏳ Generando...'; btn.disabled = true; }
+
+  try {
+    // Cargar usuarios de Supabase (solo clientes y vendedores)
+    const usuarios = await supaFetch(
+      '/rest/v1/usuarios?rol=in.(cliente,vendedor)&order=creado_en.desc&select=id,nombre,email,rol,tipo,telefono,creado_en'
+    );
+
+    if (!usuarios || usuarios.length === 0) {
+      showToast('⚠️ No hay usuarios para exportar');
+      return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const W = doc.internal.pageSize.getWidth();
+    const H = doc.internal.pageSize.getHeight();
+    const now = new Date();
+    const fechaStr = now.toLocaleDateString('es-MX', { day:'2-digit', month:'long', year:'numeric' });
+    const horaStr  = now.toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit' });
+
+    // ── Paleta de colores ──
+    const TEAL   = [0, 95, 95];
+    const DARK   = [10, 31, 31];
+    const LIGHT  = [240, 250, 248];
+    const GRAY   = [120, 120, 120];
+    const WHITE  = [255, 255, 255];
+    const GREEN  = [46, 125, 50];
+    const BLUE   = [21, 101, 192];
+
+    // ── ENCABEZADO ──────────────────────────────────────
+    doc.setFillColor(...DARK);
+    doc.rect(0, 0, W, 38, 'F');
+
+    // Logo placeholder (círculo)
+    doc.setFillColor(...TEAL);
+    doc.circle(18, 19, 9, 'F');
+    doc.setTextColor(...WHITE);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('AC', 18, 22, { align: 'center' });
+
+    // Título
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.text('AcaConnect', 32, 16);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(180, 220, 210);
+    doc.text('Reporte de Usuarios Registrados', 32, 23);
+
+    // Fecha en encabezado
+    doc.setTextColor(...WHITE);
+    doc.setFontSize(8);
+    doc.text(`Generado: ${fechaStr}  ${horaStr}`, W - 14, 16, { align: 'right' });
+    doc.text(`Por: ${currentUser?.nombre || 'Admin'}`, W - 14, 22, { align: 'right' });
+
+    // ── MÉTRICAS ─────────────────────────────────────────
+    const totalClientes  = usuarios.filter(u => (u.rol||u.tipo) === 'cliente').length;
+    const totalVendedores= usuarios.filter(u => (u.rol||u.tipo) === 'vendedor').length;
+    const total          = usuarios.length;
+
+    const metricas = [
+      { label: 'Total Usuarios', valor: total,          color: TEAL  },
+      { label: 'Clientes',       valor: totalClientes,  color: GREEN },
+      { label: 'Vendedores',     valor: totalVendedores,color: BLUE  },
+    ];
+
+    const boxW = (W - 28) / 3;
+    const boxY = 44;
+    metricas.forEach((m, i) => {
+      const x = 14 + i * (boxW + 4);
+      doc.setFillColor(...LIGHT);
+      doc.roundedRect(x, boxY, boxW, 18, 3, 3, 'F');
+      doc.setFillColor(...m.color);
+      doc.roundedRect(x, boxY, 4, 18, 2, 2, 'F');
+      doc.setTextColor(...m.color);
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.text(String(m.valor), x + boxW / 2 + 2, boxY + 11, { align: 'center' });
+      doc.setTextColor(...GRAY);
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.text(m.label, x + boxW / 2 + 2, boxY + 16, { align: 'center' });
+    });
+
+    // ── TABLA ─────────────────────────────────────────────
+    const rows = usuarios.map((u, i) => {
+      const rol = u.rol || u.tipo || 'cliente';
+      const fecha = new Date(u.creado_en).toLocaleDateString('es-MX', {
+        day:'2-digit', month:'2-digit', year:'numeric'
+      });
+      return [
+        i + 1,
+        u.nombre || '—',
+        u.email  || '—',
+        u.telefono ? u.telefono.replace('+52','') : '—',
+        rol.charAt(0).toUpperCase() + rol.slice(1),
+        fecha
+      ];
+    });
+
+    doc.autoTable({
+      startY: boxY + 24,
+      head: [['#', 'Nombre', 'Correo electrónico', 'Teléfono', 'Rol', 'Registro']],
+      body: rows,
+      theme: 'grid',
+      styles: {
+        font: 'helvetica',
+        fontSize: 8,
+        cellPadding: 3,
+        textColor: [40, 40, 40],
+        lineColor: [220, 220, 220],
+        lineWidth: 0.2,
+      },
+      headStyles: {
+        fillColor: DARK,
+        textColor: WHITE,
+        fontSize: 8,
+        fontStyle: 'bold',
+        halign: 'left',
+        cellPadding: 4,
+      },
+      columnStyles: {
+        0: { cellWidth: 8,  halign: 'center' },
+        1: { cellWidth: 40 },
+        2: { cellWidth: 52 },
+        3: { cellWidth: 24 },
+        4: { cellWidth: 20, halign: 'center' },
+        5: { cellWidth: 24, halign: 'center' },
+      },
+      alternateRowStyles: { fillColor: [248, 252, 250] },
+      didDrawCell: (data) => {
+        // Colorear badge de rol
+        if (data.section === 'body' && data.column.index === 4) {
+          const val = String(data.cell.raw).toLowerCase();
+          const col = val === 'vendedor' ? BLUE : GREEN;
+          const x = data.cell.x + 2;
+          const y = data.cell.y + 1.5;
+          const w = data.cell.width - 4;
+          const h = data.cell.height - 3;
+          doc.setFillColor(col[0], col[1], col[2], 0.12);
+          doc.setDrawColor(...col);
+          doc.roundedRect(x, y, w, h, 2, 2, 'FD');
+          doc.setTextColor(...col);
+          doc.setFontSize(7);
+          doc.setFont('helvetica', 'bold');
+          doc.text(data.cell.raw, x + w/2, y + h/2 + 1, { align: 'center' });
+        }
+      },
+      // Pie de cada página
+      didDrawPage: (data) => {
+        const pgs = doc.internal.getNumberOfPages();
+        const cur = doc.internal.getCurrentPageInfo().pageNumber;
+        doc.setFillColor(...DARK);
+        doc.rect(0, H - 10, W, 10, 'F');
+        doc.setTextColor(...WHITE);
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'normal');
+        doc.text('AcaConnect — Reporte Confidencial', 14, H - 4);
+        doc.text(`Página ${cur} de ${pgs}`, W - 14, H - 4, { align: 'right' });
+      }
+    });
+
+    // ── GUARDAR ───────────────────────────────────────────
+    const filename = `AcaConnect_Usuarios_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}.pdf`;
+    doc.save(filename);
+    showToast('✅ PDF generado: ' + filename);
+
+  } catch(e) {
+    showToast('❌ Error al generar PDF: ' + e.message);
+    console.error(e);
+  } finally {
+    if (btn) { btn.textContent = '📄 Exportar PDF'; btn.disabled = false; }
+  }
+}
+
+
+/* =====================================================
+   ADMIN — DASHBOARD DE ANALYTICS
+   ===================================================== */
+
+let _chartInstances = {};
+
+function destroyCharts() {
+  Object.values(_chartInstances).forEach(ch => { try { ch.destroy(); } catch(e) {} });
+  _chartInstances = {};
+}
+
+async function renderAdminAnalytics() {
+  const list = document.getElementById('admin-list');
+  destroyCharts();
+  list.innerHTML = `<div style="text-align:center;padding:30px;color:#aaa;">⏳ Cargando datos...</div>`;
+
+  try {
+    // ── Cargar todos los datos en paralelo ──────────────
+    const [usuarios, servicios, pagos, eventos, transacciones, resenas] = await Promise.all([
+      supaFetch('/rest/v1/usuarios?select=id,rol,tipo,creado_en&order=creado_en.asc'),
+      supaFetch('/rest/v1/servicios?select=id,categoria,estado,precio,creado_en&order=creado_en.asc'),
+      supaFetch('/rest/v1/pagos?select=id,metodo_pago,monto,creado_en&order=creado_en.asc'),
+      supaFetch('/rest/v1/eventos_analytics?select=tipo,pagina,dispositivo,creado_en&order=creado_en.desc&limit=2000').catch(()=>[]),
+      supaFetch('/rest/v1/transacciones_acapoints?select=tipo,puntos,monto_mxn,creado_en&order=creado_en.desc&limit=500').catch(()=>[]),
+      supaFetch('/rest/v1/resenas?select=estrellas,creado_en&aprobada=eq.true').catch(()=>[]),
+    ]);
+
+    // ── Calcular KPIs ───────────────────────────────────
+    const totalUsuarios   = (usuarios||[]).length;
+    const totalVendedores = (usuarios||[]).filter(u=>(u.rol||u.tipo)==='vendedor').length;
+    const totalServicios  = (servicios||[]).length;
+    const activosS        = (servicios||[]).filter(s=>s.estado==='activo').length;
+    const totalPagos      = (pagos||[]).length;
+    const ingresoTotal    = (pagos||[]).reduce((s,p)=>s+Number(p.monto||0),0);
+    const totalEventos    = (eventos||[]).length;
+    const sesionesUnicas  = new Set((eventos||[]).map(e=>e.sesion_id)).size;
+    const avgEstrellas    = (resenas||[]).length
+      ? ((resenas||[]).reduce((s,r)=>s+Number(r.estrellas||0),0)/(resenas||[]).length).toFixed(1)
+      : '—';
+
+    // ── Agrupar por mes (últimos 6) ─────────────────────
+    function agruparPorMes(arr, campo='creado_en') {
+      const meses = {};
+      const now = new Date();
+      for (let i=5; i>=0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+        const k = d.toLocaleDateString('es-MX',{month:'short',year:'2-digit'});
+        meses[k] = 0;
+      }
+      (arr||[]).forEach(item => {
+        const d = new Date(item[campo]);
+        if (isNaN(d)) return;
+        const k = d.toLocaleDateString('es-MX',{month:'short',year:'2-digit'});
+        if (meses[k] !== undefined) meses[k]++;
+      });
+      return meses;
+    }
+
+    const usuariosPorMes = agruparPorMes(usuarios);
+    const pagosPorMes    = agruparPorMes(pagos);
+    const meses          = Object.keys(usuariosPorMes);
+
+    // Dispositivos
+    const dispCount = { mobile:0, desktop:0, tablet:0 };
+    (eventos||[]).forEach(e => { if (dispCount[e.dispositivo]!==undefined) dispCount[e.dispositivo]++; });
+
+    // Páginas más visitadas
+    const paginasCount = {};
+    (eventos||[]).filter(e=>e.tipo==='vista_pagina').forEach(e => {
+      const p = e.pagina||'home';
+      paginasCount[p] = (paginasCount[p]||0) + 1;
+    });
+    const topPaginas = Object.entries(paginasCount).sort((a,b)=>b[1]-a[1]).slice(0,6);
+
+    // Tipos de evento
+    const tiposCount = {};
+    (eventos||[]).forEach(e => { tiposCount[e.tipo] = (tiposCount[e.tipo]||0) + 1; });
+
+    // Métodos de pago
+    const metCount = { efectivo:0, tarjeta:0, acapoints:0 };
+    (pagos||[]).forEach(p => { if(metCount[p.metodo_pago]!==undefined) metCount[p.metodo_pago]++; });
+
+    // Categorías de servicios
+    const catCount = {};
+    (servicios||[]).filter(s=>s.estado==='activo').forEach(s => {
+      catCount[s.categoria] = (catCount[s.categoria]||0) + 1;
+    });
+
+    // Roles de usuarios
+    const rolesCount = {};
+    (usuarios||[]).forEach(u => {
+      const r = u.rol||u.tipo||'cliente';
+      rolesCount[r] = (rolesCount[r]||0) + 1;
+    });
+
+    // Ingresos por mes
+    function ingresosPorMes(arr) {
+      const meses2 = {};
+      const now = new Date();
+      for (let i=5; i>=0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+        meses2[d.toLocaleDateString('es-MX',{month:'short',year:'2-digit'})] = 0;
+      }
+      (arr||[]).forEach(p => {
+        const d = new Date(p.creado_en);
+        const k = d.toLocaleDateString('es-MX',{month:'short',year:'2-digit'});
+        if (meses2[k]!==undefined) meses2[k] += Number(p.monto||0);
+      });
+      return meses2;
+    }
+    const ingPorMes = ingresosPorMes(pagos);
+
+    // ── HTML ─────────────────────────────────────────────
+    list.innerHTML = `
+    <div class="an-wrap">
+
+      <!-- KPIs -->
+      <div class="an-kpis">
+        <div class="an-kpi" style="--ac:#6A1B9A;--bg:#F3E5F5;">
+          <span class="an-kpi-icon">👥</span>
+          <div class="an-kpi-val">${totalUsuarios}</div>
+          <div class="an-kpi-lbl">Usuarios totales</div>
+        </div>
+        <div class="an-kpi" style="--ac:#1565C0;--bg:#E3F2FD;">
+          <span class="an-kpi-icon">📡</span>
+          <div class="an-kpi-val">${sesionesUnicas}</div>
+          <div class="an-kpi-lbl">Sesiones únicas</div>
+        </div>
+        <div class="an-kpi" style="--ac:#2E7D32;--bg:#E8F5E9;">
+          <span class="an-kpi-icon">💰</span>
+          <div class="an-kpi-val">$${Math.round(ingresoTotal).toLocaleString('es-MX')}</div>
+          <div class="an-kpi-lbl">Ingresos MXN</div>
+        </div>
+        <div class="an-kpi" style="--ac:#E65100;--bg:#FFF3E0;">
+          <span class="an-kpi-icon">🛒</span>
+          <div class="an-kpi-val">${totalPagos}</div>
+          <div class="an-kpi-lbl">Transacciones</div>
+        </div>
+        <div class="an-kpi" style="--ac:#00695C;--bg:#E0F2F1;">
+          <span class="an-kpi-icon">📦</span>
+          <div class="an-kpi-val">${activosS}/${totalServicios}</div>
+          <div class="an-kpi-lbl">Servicios activos</div>
+        </div>
+        <div class="an-kpi" style="--ac:#F9A825;--bg:#FFFDE7;">
+          <span class="an-kpi-icon">⭐</span>
+          <div class="an-kpi-val">${avgEstrellas}</div>
+          <div class="an-kpi-lbl">Calificación prom.</div>
+        </div>
+      </div>
+
+      <!-- Fila 1: Usuarios + Ingresos -->
+      <div class="an-row-2">
+        <div class="an-card">
+          <div class="an-card-title">📈 Nuevos usuarios por mes</div>
+          <canvas id="ch-usuarios" height="200"></canvas>
+        </div>
+        <div class="an-card">
+          <div class="an-card-title">💰 Ingresos por mes (MXN)</div>
+          <canvas id="ch-ingresos" height="200"></canvas>
+        </div>
+      </div>
+
+      <!-- Fila 2: Dispositivos + Métodos de pago -->
+      <div class="an-row-2">
+        <div class="an-card">
+          <div class="an-card-title">📱 Tráfico por dispositivo</div>
+          <div style="max-width:260px;margin:0 auto;">
+            <canvas id="ch-dispositivos" height="220"></canvas>
+          </div>
+        </div>
+        <div class="an-card">
+          <div class="an-card-title">💳 Métodos de pago</div>
+          <div style="max-width:260px;margin:0 auto;">
+            <canvas id="ch-metodos" height="220"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Fila 3: Categorías + Roles -->
+      <div class="an-row-2">
+        <div class="an-card">
+          <div class="an-card-title">🏷️ Servicios por categoría</div>
+          <canvas id="ch-categorias" height="200"></canvas>
+        </div>
+        <div class="an-card">
+          <div class="an-card-title">👥 Distribución de roles</div>
+          <div style="max-width:240px;margin:0 auto;">
+            <canvas id="ch-roles" height="220"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Fila 4: Páginas más visitadas + Actividad por tipo -->
+      <div class="an-row-2">
+        <div class="an-card">
+          <div class="an-card-title">🔥 Páginas más visitadas</div>
+          <canvas id="ch-paginas" height="200"></canvas>
+        </div>
+        <div class="an-card">
+          <div class="an-card-title">⚡ Actividad por tipo de evento</div>
+          <canvas id="ch-eventos" height="200"></canvas>
+        </div>
+      </div>
+
+      <!-- Tabla: Top páginas detalle -->
+      <div class="an-card" style="margin-top:0;">
+        <div class="an-card-title">📋 Resumen de tráfico</div>
+        <table class="an-table">
+          <thead><tr><th>Página</th><th>Visitas</th><th>% del total</th><th>Barra</th></tr></thead>
+          <tbody>
+            ${topPaginas.map(([p,n])=>`
+            <tr>
+              <td>${{home:'🏠 Inicio',marketplace:'🛍️ Marketplace',publish:'📢 Publicar',
+                   about:'ℹ️ Nosotros',contact:'✉️ Contacto',acapoints:'🪙 AcaPoints'}[p]||'📄 '+p}</td>
+              <td><strong>${n}</strong></td>
+              <td>${totalEventos>0?((n/totalEventos)*100).toFixed(1):'0'}%</td>
+              <td><div style="background:#f0f0f0;border-radius:4px;height:8px;width:100%;"><div style="background:#6A1B9A;border-radius:4px;height:8px;width:${totalEventos>0?Math.round(n/Math.max(...topPaginas.map(x=>x[1]))*100):0}%;"></div></div></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+        ${totalEventos === 0 ? '<p style="text-align:center;color:#aaa;font-size:13px;padding:12px;">Los datos de tráfico aparecerán después de que los usuarios naveguen la plataforma.</p>' : ''}
+      </div>
+
+    </div>`;
+
+    // ── Renderizar gráficas con Chart.js ─────────────────
+    const TEAL_GRAD = ['rgba(0,95,95,0.8)','rgba(0,95,95,0.6)','rgba(0,95,95,0.4)'];
+    const PALETTE   = ['#6A1B9A','#1565C0','#2E7D32','#E65100','#00695C','#F9A825','#C62828','#37474F'];
+
+    // 1. Usuarios por mes (línea)
+    _chartInstances.usuarios = new Chart(document.getElementById('ch-usuarios'), {
+      type: 'line',
+      data: {
+        labels: meses,
+        datasets: [{ label:'Nuevos usuarios', data: Object.values(usuariosPorMes),
+          borderColor:'#6A1B9A', backgroundColor:'rgba(106,27,154,0.1)',
+          tension:0.4, fill:true, pointRadius:4, pointHoverRadius:6 }]
+      },
+      options: { responsive:true, plugins:{legend:{display:false}},
+        scales:{ y:{beginAtZero:true,ticks:{stepSize:1}}, x:{grid:{display:false}} } }
+    });
+
+    // 2. Ingresos por mes (barras)
+    _chartInstances.ingresos = new Chart(document.getElementById('ch-ingresos'), {
+      type: 'bar',
+      data: {
+        labels: meses,
+        datasets: [{ label:'MXN', data: Object.values(ingPorMes),
+          backgroundColor:'rgba(46,125,50,0.75)', borderRadius:6, borderSkipped:false }]
+      },
+      options: { responsive:true, plugins:{legend:{display:false}},
+        scales:{ y:{beginAtZero:true}, x:{grid:{display:false}} } }
+    });
+
+    // 3. Dispositivos (dona)
+    const dispTotal = Object.values(dispCount).reduce((a,b)=>a+b,0)||1;
+    _chartInstances.dispositivos = new Chart(document.getElementById('ch-dispositivos'), {
+      type: 'doughnut',
+      data: {
+        labels:['📱 Móvil','🖥️ Escritorio','📟 Tablet'],
+        datasets:[{ data:[dispCount.mobile,dispCount.desktop,dispCount.tablet],
+          backgroundColor:['#1565C0','#6A1B9A','#E65100'],
+          borderWidth:0, hoverOffset:6 }]
+      },
+      options:{ responsive:true, plugins:{
+        legend:{ position:'bottom', labels:{padding:12,font:{size:11}} },
+        tooltip:{ callbacks:{ label: ctx => ` ${ctx.label}: ${ctx.raw} (${Math.round(ctx.raw/dispTotal*100)}%)` } }
+      }}
+    });
+
+    // 4. Métodos de pago (dona)
+    const metTotal = Object.values(metCount).reduce((a,b)=>a+b,0)||1;
+    _chartInstances.metodos = new Chart(document.getElementById('ch-metodos'), {
+      type: 'doughnut',
+      data: {
+        labels:['💵 Efectivo','💳 Tarjeta','🪙 AcaPoints'],
+        datasets:[{ data:[metCount.efectivo,metCount.tarjeta,metCount.acapoints],
+          backgroundColor:['#2E7D32','#1565C0','#F9A825'],
+          borderWidth:0, hoverOffset:6 }]
+      },
+      options:{ responsive:true, plugins:{
+        legend:{ position:'bottom', labels:{padding:12,font:{size:11}} },
+        tooltip:{ callbacks:{ label: ctx => ` ${ctx.label}: ${ctx.raw} (${Math.round(ctx.raw/metTotal*100)}%)` } }
+      }}
+    });
+
+    // 5. Categorías (barras horizontales)
+    const catLabels = { gastronomia:'🍴 Gastronomía', hospedaje:'🏨 Hospedaje',
+                        servicios:'💼 Servicios', experiencias:'⛵ Experiencias' };
+    const catKeys = Object.keys(catCount);
+    _chartInstances.categorias = new Chart(document.getElementById('ch-categorias'), {
+      type: 'bar',
+      data: {
+        labels: catKeys.map(k=>catLabels[k]||k),
+        datasets:[{ label:'Servicios activos', data:catKeys.map(k=>catCount[k]),
+          backgroundColor: catKeys.map((_,i)=>PALETTE[i%PALETTE.length]),
+          borderRadius:6, borderSkipped:false }]
+      },
+      options:{ indexAxis:'y', responsive:true, plugins:{legend:{display:false}},
+        scales:{ x:{beginAtZero:true,ticks:{stepSize:1}}, y:{grid:{display:false}} } }
+    });
+
+    // 6. Roles (dona)
+    const rolKeys = Object.keys(rolesCount);
+    const rolColors = { admin:'#E53935', supervisor:'#F57C00', vendedor:'#1976D2', cliente:'#388E3C' };
+    _chartInstances.roles = new Chart(document.getElementById('ch-roles'), {
+      type: 'doughnut',
+      data: {
+        labels: rolKeys.map(r=>({admin:'👑 Admin',supervisor:'🔍 Supervisor',vendedor:'🏪 Vendedor',cliente:'👤 Cliente'}[r]||r)),
+        datasets:[{ data: rolKeys.map(r=>rolesCount[r]),
+          backgroundColor: rolKeys.map(r=>rolColors[r]||'#888'),
+          borderWidth:0, hoverOffset:6 }]
+      },
+      options:{ responsive:true, plugins:{
+        legend:{ position:'bottom', labels:{padding:10,font:{size:11}} }
+      }}
+    });
+
+    // 7. Páginas más visitadas (barras)
+    _chartInstances.paginas = new Chart(document.getElementById('ch-paginas'), {
+      type: 'bar',
+      data: {
+        labels: topPaginas.map(([p])=>({home:'Inicio',marketplace:'Marketplace',publish:'Publicar',
+          about:'Nosotros',contact:'Contacto',acapoints:'AcaPoints'}[p]||p)),
+        datasets:[{ data: topPaginas.map(([,n])=>n),
+          backgroundColor:'rgba(106,27,154,0.7)', borderRadius:6, borderSkipped:false }]
+      },
+      options:{ responsive:true, plugins:{legend:{display:false}},
+        scales:{ y:{beginAtZero:true,ticks:{stepSize:1}}, x:{grid:{display:false}} } }
+    });
+
+    // 8. Tipos de evento (barras)
+    const evLabels = { vista_pagina:'Vista página', vista_servicio:'Vista servicio',
+      login:'Login', registro:'Registro', pago:'Pago', click_contacto:'Contacto' };
+    const evKeys = Object.keys(tiposCount).slice(0,6);
+    _chartInstances.eventos = new Chart(document.getElementById('ch-eventos'), {
+      type: 'bar',
+      data: {
+        labels: evKeys.map(k=>evLabels[k]||k),
+        datasets:[{ data: evKeys.map(k=>tiposCount[k]),
+          backgroundColor: evKeys.map((_,i)=>PALETTE[i]),
+          borderRadius:6, borderSkipped:false }]
+      },
+      options:{ responsive:true, plugins:{legend:{display:false}},
+        scales:{ y:{beginAtZero:true,ticks:{stepSize:1}}, x:{grid:{display:false}} } }
+    });
+
+  } catch(e) {
+    list.innerHTML = `<div style="text-align:center;padding:40px;color:#c62828;">
+      ❌ Error al cargar analytics: ${e.message}</div>`;
+  }
 }
 

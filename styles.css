@@ -2575,3 +2575,184 @@
   .mv-card-body  { padding-right: 28px; }
 }
 
+
+/* =====================================================
+   SOLICITUD VENDEDOR
+   ===================================================== */
+.sv-upload-box {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  min-height: 80px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color .2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sv-upload-box:hover { border-color: var(--teal); }
+.sv-upload-ph {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px;
+  color: #aaa;
+  font-size: 13px;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* =====================================================
+   SOLICITUD VENDEDOR — INTEGRADA EN PÁGINA PUBLICAR
+   ===================================================== */
+
+.pv-sol-hero {
+  text-align: center;
+  padding: 32px 20px 24px;
+}
+.pv-sol-icon { font-size: 56px; margin-bottom: 10px; }
+.pv-sol-hero h2 { margin: 0 0 8px; font-size: 26px; font-weight: 900; color: var(--text); }
+.pv-sol-hero p  { color: var(--text-mid); font-size: 15px; margin: 0; }
+
+/* Estado boxes */
+.pv-estado-box {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  border-radius: 16px;
+  padding: 20px 18px;
+  margin-bottom: 20px;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.pv-estado-box.pendiente  { background: #fff8e1; border: 1.5px solid #ffe082; }
+.pv-estado-box.rechazado  { background: #ffebee; border: 1.5px solid #ffcdd2; }
+.pv-estado-box strong { display: block; font-size: 16px; font-weight: 700; color: #1a1a1a; margin-bottom: 4px; }
+.pv-estado-box p { margin: 0; font-size: 13px; color: #555; }
+
+/* Steps */
+.pv-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin-bottom: 24px;
+  flex-wrap: nowrap;
+}
+.pv-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #bbb;
+  white-space: nowrap;
+}
+.pv-step span {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: #e0e0e0;
+  color: #aaa;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800;
+  transition: all .25s;
+}
+.pv-step.active { color: var(--teal); }
+.pv-step.active span { background: var(--teal); color: white; }
+.pv-step-line { flex: 1; height: 2px; background: #e0e0e0; min-width: 20px; max-width: 40px; }
+
+/* Resumen paso 3 */
+.pv-confirm-box {
+  text-align: center;
+  padding: 16px 0 12px;
+}
+.pv-confirm-box h3 { font-size: 18px; margin: 0 0 6px; }
+.pv-confirm-box p  { color: #888; font-size: 13px; margin: 0 0 16px; }
+.pv-resumen { text-align: left; background: #f8f8f8; border-radius: 12px; padding: 12px 14px; }
+.pv-resumen-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  padding: 6px 0;
+  border-bottom: 1px solid #eee;
+  gap: 12px;
+}
+.pv-resumen-row:last-child { border-bottom: none; }
+.pv-resumen-row span  { color: #888; flex-shrink: 0; }
+.pv-resumen-row strong { color: #1a1a1a; text-align: right; }
+
+
+/* =====================================================
+   ADMIN — ANALYTICS DASHBOARD
+   ===================================================== */
+
+.an-wrap { padding: 4px 0 8px; }
+
+.an-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.an-kpi {
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 12px 12px;
+  border-left: 4px solid var(--ac);
+  background: var(--bg-c, #fff);
+}
+.an-kpi-icon { font-size: 20px; display: block; margin-bottom: 6px; }
+.an-kpi-val  { font-size: 20px; font-weight: 800; color: var(--ac); line-height: 1; margin-bottom: 4px; }
+.an-kpi-lbl  { font-size: 11px; color: #888; }
+
+.an-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.an-card {
+  background: #fff;
+  border: 1.5px solid #e8e8e8;
+  border-radius: 14px;
+  padding: 14px 14px 12px;
+}
+.an-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #333;
+  margin-bottom: 12px;
+}
+
+.an-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.an-table th {
+  text-align: left;
+  font-size: 10px;
+  font-weight: 700;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 6px 8px;
+  border-bottom: 1.5px solid #f0f0f0;
+}
+.an-table td {
+  padding: 8px 8px;
+  border-bottom: 1px solid #f5f5f5;
+  color: #444;
+}
+.an-table tr:last-child td { border-bottom: none; }
+
+@media (max-width: 600px) {
+  .an-kpis    { grid-template-columns: repeat(2, 1fr); }
+  .an-row-2   { grid-template-columns: 1fr; }
+  .an-kpi-val { font-size: 17px; }
+}
+

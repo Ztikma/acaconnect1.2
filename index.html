@@ -8,6 +8,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="styles.css"/>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="app.js" defer></script>
 <script>
   emailjs.init('vfk_47-On2SN3GzT1');
@@ -195,9 +198,146 @@
 <!-- PUBLICAR -->
 <div id="page-publish" class="page">
   <div class="publish-container">
-    <h2>Publicar un Servicio</h2>
-    <p>Comparte lo que ofreces con miles de visitantes en Acapulco</p>
-    <div class="form-card">
+
+    <!-- PANEL SOLICITUD VENDEDOR (visible solo para clientes) -->
+    <div id="pv-solicitud-panel" style="display:none;">
+      <div class="pv-sol-hero">
+        <div class="pv-sol-icon">🏪</div>
+        <h2>Quiero ser Vendedor</h2>
+        <p>Para publicar servicios en AcaConnect necesitas verificar tu identidad. Es rápido y gratuito.</p>
+      </div>
+
+      <!-- Estado: pendiente -->
+      <div id="pv-estado-pendiente" style="display:none;">
+        <div class="pv-estado-box pendiente">
+          <span style="font-size:36px;">⏳</span>
+          <div>
+            <strong>Solicitud en revisión</strong>
+            <p>Estamos verificando tus documentos. Te notificaremos cuando tu cuenta sea aprobada como vendedor (máx. 24 hrs).</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Estado: rechazado -->
+      <div id="pv-estado-rechazado" style="display:none;">
+        <div class="pv-estado-box rechazado">
+          <span style="font-size:36px;">❌</span>
+          <div>
+            <strong>Solicitud rechazada</strong>
+            <p id="pv-motivo-rechazo">Puedes volver a enviar tus documentos.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Formulario de solicitud -->
+      <div id="pv-form-solicitud" style="display:none;">
+        <div class="form-card">
+          <div class="pv-steps">
+            <div class="pv-step active" id="pvs-1"><span>1</span> Datos</div>
+            <div class="pv-step-line"></div>
+            <div class="pv-step" id="pvs-2"><span>2</span> Documentos</div>
+            <div class="pv-step-line"></div>
+            <div class="pv-step" id="pvs-3"><span>3</span> Envío</div>
+          </div>
+
+          <!-- Paso 1: Datos personales -->
+          <div id="pv-paso-1">
+            <div class="form-group">
+              <label class="form-label">Nombre completo <span class="req">*</span></label>
+              <input class="form-input" id="pv-nombre" type="text" placeholder="Como aparece en tu INE"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">CURP <span class="req">*</span></label>
+              <input class="form-input" id="pv-curp" type="text" maxlength="18"
+                placeholder="XXXX000000XXXXXXXX" oninput="this.value=this.value.toUpperCase()"/>
+              <p class="hint">18 caracteres — puedes consultarla en <a href="https://www.gob.mx/curp/" target="_blank">gob.mx/curp</a></p>
+            </div>
+            <button class="btn-publish" onclick="pvPaso(2)" style="width:100%;">Continuar →</button>
+          </div>
+
+          <!-- Paso 2: Documentos -->
+          <div id="pv-paso-2" style="display:none;">
+            <p class="hint" style="margin-bottom:16px;">📋 Sube fotos claras y legibles. Formatos: JPG, PNG.</p>
+
+            <div class="form-group">
+              <label class="form-label">🪪 INE — Frente <span class="req">*</span></label>
+              <div class="sv-upload-box" onclick="document.getElementById('pv-file-ine').click()">
+                <input type="file" id="pv-file-ine" accept="image/*" style="display:none"
+                  onchange="pvPreview(this,'pv-prev-ine','pv-ph-ine')"/>
+                <img id="pv-prev-ine" style="display:none;width:100%;height:130px;object-fit:cover;border-radius:10px;"/>
+                <div id="pv-ph-ine" class="sv-upload-ph">
+                  <span style="font-size:28px;">🪪</span><span>Foto del frente de tu INE</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">🪪 INE — Reverso</label>
+              <div class="sv-upload-box" onclick="document.getElementById('pv-file-iner').click()">
+                <input type="file" id="pv-file-iner" accept="image/*" style="display:none"
+                  onchange="pvPreview(this,'pv-prev-iner','pv-ph-iner')"/>
+                <img id="pv-prev-iner" style="display:none;width:100%;height:130px;object-fit:cover;border-radius:10px;"/>
+                <div id="pv-ph-iner" class="sv-upload-ph">
+                  <span style="font-size:28px;">🪪</span><span>Reverso del INE (opcional)</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">📄 Acta de nacimiento <span class="req">*</span></label>
+              <div class="sv-upload-box" onclick="document.getElementById('pv-file-acta').click()">
+                <input type="file" id="pv-file-acta" accept="image/*" style="display:none"
+                  onchange="pvPreview(this,'pv-prev-acta','pv-ph-acta')"/>
+                <img id="pv-prev-acta" style="display:none;width:100%;height:130px;object-fit:cover;border-radius:10px;"/>
+                <div id="pv-ph-acta" class="sv-upload-ph">
+                  <span style="font-size:28px;">📄</span><span>Foto de tu acta de nacimiento</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">🤳 Selfie sosteniendo tu INE</label>
+              <div class="sv-upload-box" onclick="document.getElementById('pv-file-selfie').click()">
+                <input type="file" id="pv-file-selfie" accept="image/*" capture="user" style="display:none"
+                  onchange="pvPreview(this,'pv-prev-selfie','pv-ph-selfie')"/>
+                <img id="pv-prev-selfie" style="display:none;width:100%;height:130px;object-fit:cover;border-radius:10px;"/>
+                <div id="pv-ph-selfie" class="sv-upload-ph">
+                  <span style="font-size:28px;">🤳</span><span>Selfie con INE (recomendado)</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:10px;margin-top:8px;">
+              <button class="btn-cancel" onclick="pvPaso(1)" style="flex:1;">← Volver</button>
+              <button class="btn-publish" onclick="pvPaso(3)" style="flex:2;">Revisar y enviar →</button>
+            </div>
+          </div>
+
+          <!-- Paso 3: Confirmación -->
+          <div id="pv-paso-3" style="display:none;">
+            <div class="pv-confirm-box">
+              <div style="font-size:36px;margin-bottom:8px;">✅</div>
+              <h3>Todo listo para enviar</h3>
+              <p>Revisa que tus datos sean correctos antes de enviar la solicitud.</p>
+              <div class="pv-resumen" id="pv-resumen"></div>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:12px;">
+              <button class="btn-cancel" onclick="pvPaso(2)" style="flex:1;">← Editar</button>
+              <button class="btn-publish" id="pv-btn-enviar" onclick="pvEnviarSolicitud()" style="flex:2;">
+                🚀 Enviar solicitud
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- FORMULARIO REAL DE PUBLICACIÓN (visible solo para vendedores+) -->
+    <div id="pv-form-publicar">
+      <h2>Publicar un Servicio</h2>
+      <p>Comparte lo que ofreces con miles de visitantes en Acapulco</p>
+      <div class="form-card">
       <div class="form-group">
         <label class="form-label">Título del servicio <span class="req">*</span></label>
         <input class="form-input" type="text" placeholder="Ej: Clases de surf en Playa Revolcadero" id="pub-title"/>
@@ -360,6 +500,7 @@
         <button class="btn-cancel" onclick="showPage('marketplace')">Cancelar</button>
       </div>
     </div>
+    </div><!-- /pv-form-publicar -->
   </div>
 </div>
 
@@ -880,18 +1021,35 @@
         <h2>Panel de Administración</h2>
         <span class="badge-count" id="admin-badge">0</span>
       </div>
-      <button class="modal-close" style="position:static;font-size:26px;" onclick="closeAdmin()">×</button>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button onclick="exportarUsuariosPDF()" 
+          style="background:#1565C0;color:#fff;border:none;border-radius:20px;padding:7px 14px;
+                 font-family:'DM Sans',sans-serif;font-size:12px;font-weight:700;cursor:pointer;
+                 display:flex;align-items:center;gap:5px;white-space:nowrap;">
+          📄 Exportar PDF
+        </button>
+        <button class="modal-close" style="position:static;font-size:26px;" onclick="closeAdmin()">×</button>
+      </div>
     </div>
     <div class="admin-tabs">
       <button class="admin-tab active" data-tab="pendientes" onclick="switchAdminTab(this)">⏳ Pendientes</button>
       <button class="admin-tab" data-tab="activos" onclick="switchAdminTab(this)">✅ Activos</button>
       <button class="admin-tab" data-tab="rechazados" onclick="switchAdminTab(this)">❌ Rechazados</button>
-      <button class="admin-tab" data-tab="usuarios" onclick="switchAdminTab(this)">👥 Usuarios</button>
+
       <button class="admin-tab" data-tab="mensajes" onclick="switchAdminTab(this)" id="tab-mensajes" style="position:relative;">
         ✉️ Mensajes<span class="msg-badge" id="msg-badge" style="display:none;background:var(--orange);color:#fff;border-radius:100px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:6px;"></span>
       </button>
       <button class="admin-tab" data-tab="ganancias" onclick="switchAdminTab(this)" style="color:#2e7d32;font-weight:700;">
         💰 Ganancias
+      </button>
+      <button class="admin-tab" data-tab="roles" onclick="switchAdminTab(this)" style="color:#7B1FA2;font-weight:700;">
+        🎭 Roles
+      </button>
+      <button class="admin-tab" data-tab="verificaciones" onclick="switchAdminTab(this)" style="color:#1565C0;font-weight:700;" id="tab-verificaciones">
+        🪪 Verificaciones
+      </button>
+      <button class="admin-tab" data-tab="analytics" onclick="switchAdminTab(this)" style="color:#6A1B9A;font-weight:700;">
+        📊 Analytics
       </button>
     </div>
     <div class="admin-list" id="admin-list">
